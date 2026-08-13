@@ -1,0 +1,89 @@
+# Geometry and element manifest.
+#
+# YAML holds STRUCTURE: sizes, roles, which bank each layer binds to, how
+# pieces assemble. Pixel data lives in tiles under the deck's artifacts assets
+# dir, because pixels do not belong in a config file.
+#
+# Every size here is load-time validated: the border runs must divide evenly by
+# the edge tile, and each tile must match its declared size.
+
+geometry:
+  card:   [160, 276]        # 1:1.725, true tarot is 1:1.727
+  art:    [144, 224]        # 1:1.556, RWS scans measure 1:1.561
+  margin: 8
+  bands:
+    numeral: 16             # above art
+    title:   36             # below art
+
+border:
+  corner: 16                # corner tile is 16x16; also the band thickness
+  edge:   8                 # repeating edge tile run length
+  medallion:
+    horizontal: 16          # slot width on top/bottom edges
+    vertical:   20          # slot height on left/right edges
+
+# Field lattice for pip cards. Rows are centred on art height / 2, columns on
+# the mirror axis, so every arrangement is bilaterally symmetric.
+lattice:
+  rows:
+    1: [112]
+    2: [72, 152]
+    3: [72, 112, 152]
+    4: [52, 92, 132, 172]
+    5: [32, 72, 112, 152, 192]
+  cols:
+    1: [72]
+    2: [48, 96]
+    3: [36, 72, 108]
+  layouts:                  # count -> [n_cols, n_rows, extra centre pips]
+    1:  {grid: [1, 1]}
+    2:  {grid: [1, 2]}
+    3:  {grid: [1, 3]}
+    4:  {grid: [2, 2]}
+    5:  {grid: [2, 2], extra: [[72, 112]]}
+    6:  {grid: [2, 3]}
+    7:  {grid: [2, 3], extra: [[72, 112]]}
+    8:  {grid: [2, 4]}
+    9:  {grid: [2, 4], extra: [[72, 112]]}
+    10: {grid: [2, 5]}
+
+# ---------------------------------------------------------------- elements
+# role determines placement:
+#   corner    mirrored into all four corners
+#   edge      repeated along each run, mirrored across the axes
+#   medallion placed at edge centres, NEVER mirrored (a cup on its side
+#             is not a cup), and drawn opaque so the frame cannot bisect it
+#   pip       placed on the field lattice, mirrored horizontally
+elements:
+  corner:
+    path: border/corner
+    size: [16, 16]
+    role: corner
+    layers: [border]
+
+  edge:
+    path: border/edge
+    size: [16, 8]           # authored horizontal; transposed for side edges
+    role: edge
+    layers: [border]
+
+  cartouche:
+    path: cartouche/roundel
+    size: [24, 24]          # bulges 8px past the band, deliberately
+    role: medallion
+    layers: [motif]
+    opaque: true            # asserted at load
+
+  pip_wands:     {path: pips/wands,     size: [16, 16], role: pip, layers: [motif]}
+  pip_cups:      {path: pips/cups,      size: [16, 16], role: pip, layers: [motif]}
+  pip_swords:    {path: pips/swords,    size: [16, 16], role: pip, layers: [motif]}
+  pip_pentacles: {path: pips/pentacles, size: [16, 16], role: pip, layers: [motif]}
+  pip_rose:      {path: pips/rose,      size: [16, 16], role: pip, layers: [motif]}
+
+# which pip each suit uses; majors fall back to rose
+suit_pips:
+  wands: pip_wands
+  cups: pip_cups
+  swords: pip_swords
+  pentacles: pip_pentacles
+  majors: pip_rose

@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from arcana!")
+"""arcana — pixel-art card generation: a modular tile/palette engine."""
