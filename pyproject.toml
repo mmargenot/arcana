@@ -1,0 +1,19 @@
+[project]
+name = "arcana"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Maxwell Margenot", email = "max.margenot@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.2",
+]
+
+[project.scripts]
+arcana = "arcana:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
