@@ -1,15 +1,25 @@
 """
 Composition: elements + geometry + palette -> a global index matrix.
 
-Three rules earned the hard way, each guarding a bug that is invisible at 1x:
+The frame line is STRUCTURAL and the tiles are DECORATION. `build_border` draws
+the beveled rule frame itself — straight rules between the corners, mitered at
+each corner — and then overlays the corner and edge tiles as pure ornament. That
+split is deliberate: swap a corner or edge motif and the frame line does not
+move a pixel.
+
+Four rules earned the hard way, each guarding a bug that is invisible at 1x:
 
   ORIENT   a side edge is the top edge TRANSPOSED, nothing more. An extra
            horizontal flip puts the outer rule on the inner side of the band,
            so both side edges lose their rule for their whole length.
 
-  BACK     lay a plain rule strip across the whole run BEFORE placing ornament.
-           Otherwise the medallion slot leaves a hole in every edge, because
-           whatever sits there may not carry the frame rules itself.
+  FRAME    the rule frame is drawn from PROFILE, never read off a tile. The
+           corner mitres by sampling PROFILE at depth min(row, col), so every
+           rule turns 45 degrees instead of butting square.
+
+  MOTIF    corner and edge tiles carry ornament on a transparent field. They are
+           pasted over the frame, so their transparent pixels leave the rules
+           intact and only their marks show.
 
   LAST     place medallions after mirroring, never before. Mirroring a cup
            gives you a cup lying on its side.
@@ -57,6 +67,19 @@ def profile_strip(thickness: int, length: int) -> np.ndarray:
     return s
 
 
+def corner_rule(C: int) -> np.ndarray:
+    """The frame corner as a 45-degree mitre. Colour at (r, c) is PROFILE sampled
+    at depth min(r, c), so every rule — the LINE/MID/LIGHT triple and the inner
+    DARK rule alike — turns the corner along the diagonal instead of cutting
+    square. Symmetric about the diagonal, so it meets the transposed side edge
+    with no seam."""
+    prof = np.zeros(C, np.uint8)
+    for a, b, v in PROFILE:
+        prof[a:b] = v
+    rr, cc = np.mgrid[0:C, 0:C]
+    return prof[np.minimum(rr, cc)]
+
+
 def orient(tile: np.ndarray) -> np.ndarray:
     """Top-edge piece -> left-edge piece. Transpose only. No flip."""
     return tile.T
@@ -76,31 +99,28 @@ def build_border(geo: Geometry, corner: Element, edge: Element,
     frame = np.zeros((H, W), np.uint8)
     med = np.zeros((H, W), np.uint8)
 
-    ct = corner.layers[frame_bank]
-    et = edge.layers[frame_bank]
+    ct = corner.layers[frame_bank]      # corner MOTIF, transparent field
+    et = edge.layers[frame_bank]        # edge MOTIF, transparent field
     evt = orient(et)
 
-    # top edge: backing strip first, then ornament
-    paste(frame, profile_strip(C, W - 2 * C), C, 0)
+    # structural frame: straight rules between the corners, mitred at the corner.
+    # Drawn from PROFILE, so the frame is identical whatever motifs are pasted on.
+    paste(frame, profile_strip(C, W - 2 * C), C, 0)          # top rules
+    paste(frame, orient(profile_strip(C, H - 2 * C)), 0, C)  # left rules
+    paste(frame, corner_rule(C), 0, 0)                       # beveled corner
+
+    # ornament overlay: dentils along each run, staircase in the corner. Only the
+    # top-left quadrant is drawn; the mirror below fills the other three.
     x = C
     for _ in range(nh):
         paste(frame, et, x, 0); x += E
     x_med = x
-    x += geo.med_h
-    for _ in range(nh):
-        paste(frame, et[:, ::-1], x, 0); x += E
-
-    # left edge
-    paste(frame, orient(profile_strip(C, H - 2 * C)), 0, C)
     y = C
     for _ in range(nv):
         paste(frame, evt, 0, y); y += E
     y_med = y
-    y += geo.med_v
-    for _ in range(nv):
-        paste(frame, evt[::-1, :], 0, y); y += E
-
     paste(frame, ct, 0, 0)
+
     frame[:, W // 2:] = frame[:, :W // 2][:, ::-1]
     frame[H - H // 2:] = frame[:H // 2][::-1, :]
 
