@@ -1,0 +1,53 @@
+# Every hex value MUST be quoted. Unquoted '#RRGGBB' is a YAML comment and
+# parses as null. The loader rejects nulls rather than letting them render.
+#
+# Banks are three colors on fixed value rungs: L=30 / 50 / 74. Holding every
+# bank to the same rungs is what stops a Swords card reading paler than a Cups
+# card when they sit side by side in a spread.
+
+name: vaporwave-rws
+schema_version: 3
+
+rungs:
+  dark: 30
+  mid: 50
+  light: 74
+tolerance: 6
+
+# available to every element, in every bank
+universal:
+  line: "#221E1A"          # L=12
+  paper: "#EDE6D8"         # L=89
+
+banks:
+  border:                  # deck-constant frame
+    dark: "#4A3170"        # L=32
+    mid: "#7651AE"         # L=50
+    light: "#B49CE0"       # L=75
+  field:                   # card background, varies by suit
+    dark: "#2E4F5C"
+    mid: "#5D8E9E"
+    light: "#A8CFD9"
+  motif:                   # pips and ornament, varies by suit
+    dark: "#75244D"
+    mid: "#D22D7A"
+    light: "#FF7ABD"
+  figure:                  # skin; majors and courts
+    dark: "#6B4038"        # L=32
+    mid: "#A86D52"         # L=49
+    light: "#E5B48F"       # L=73
+
+# per-suit overrides. Fields are desaturated so motifs read on top of them.
+suits:
+  wands:
+    motif: {dark: "#7E341B", mid: "#DF5B20", light: "#FFB37A"}
+    field: {dark: "#5C4038", mid: "#9E7A5E", light: "#D9BFA0"}
+  cups:
+    motif: {dark: "#75244D", mid: "#D22D7A", light: "#FF7ABD"}
+    field: {dark: "#2E4F5C", mid: "#5D8E9E", light: "#A8CFD9"}
+  swords:
+    motif: {dark: "#3A3A5F", mid: "#4747B8", light: "#9292E8"}
+    field: {dark: "#3F4452", mid: "#7C8496", light: "#C0C6D4"}
+  pentacles:
+    motif: {dark: "#336639", mid: "#53AC5A", light: "#97E29E"}
+    field: {dark: "#3B4A38", mid: "#75886B", light: "#BACAAE"}
