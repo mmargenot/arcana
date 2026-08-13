@@ -147,6 +147,26 @@ def test_role_mismatch_rejected(ctx):
         compose.build_border(geo, els["pip_cups"], els["edge"])
 
 
+# --- pip cards ----------------------------------------------------------
+def test_build_pip_card_shape_and_indices(ctx):
+    """A pip card is one card-sized matrix in global index space."""
+    pal, geo, cfg, els = ctx
+    m = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"])
+    assert m.shape == (geo.card_h, geo.card_w)
+    assert int(m.max()) < len(pal.colors)
+
+
+def test_pip_card_is_suit_invariant(ctx):
+    """Like the border, the pip-card index matrix is the same for every suit —
+    colour is a LUT swap at render time, not a re-composition."""
+    pal, geo, cfg, els = ctx
+    base = compose.build_pip_card(pal, geo, els, 7, "cross", cfg["suit_pips"]["cups"])
+    for suit in ("wands", "swords", "pentacles"):
+        pal_s = pal.for_suit(suit)
+        other = compose.build_pip_card(pal_s, geo, els, 7, "cross", cfg["suit_pips"]["cups"])
+        assert np.array_equal(base, other)
+
+
 # --- asset io -----------------------------------------------------------
 def test_rgb_png_rejected(tmp_path, ctx):
     """Build the fixture from a loaded element — assets may be stored as

@@ -22,31 +22,6 @@ border:
     horizontal: 16          # slot width on top/bottom edges
     vertical:   20          # slot height on left/right edges
 
-# Field lattice for pip cards. Rows are centred on art height / 2, columns on
-# the mirror axis, so every arrangement is bilaterally symmetric.
-lattice:
-  rows:
-    1: [112]
-    2: [72, 152]
-    3: [72, 112, 152]
-    4: [52, 92, 132, 172]
-    5: [32, 72, 112, 152, 192]
-  cols:
-    1: [72]
-    2: [48, 96]
-    3: [36, 72, 108]
-  layouts:                  # count -> [n_cols, n_rows, extra centre pips]
-    1:  {grid: [1, 1]}
-    2:  {grid: [1, 2]}
-    3:  {grid: [1, 3]}
-    4:  {grid: [2, 2]}
-    5:  {grid: [2, 2], extra: [[72, 112]]}
-    6:  {grid: [2, 3]}
-    7:  {grid: [2, 3], extra: [[72, 112]]}
-    8:  {grid: [2, 4]}
-    9:  {grid: [2, 4], extra: [[72, 112]]}
-    10: {grid: [2, 5]}
-
 # ---------------------------------------------------------------- elements
 # role determines placement:
 #   corner    decorative motif overlaid on the beveled frame's corners,
@@ -90,3 +65,21 @@ suit_pips:
   swords: pip_swords
   pentacles: pip_pentacles
   majors: pip_rose
+
+# Pip arrangement per rank (Ace..Ten). Each rank places `count` pips using the
+# named algorithm from arcana.layout; `arcana cards --layout NAME` overrides all
+# ranks at once to compare algorithms. Arrangement follows the count, so it is
+# keyed by rank rather than by suit.
+pip_layouts:
+  default: square
+  by_rank:
+    1:  single
+    2:  pale
+    3:  chevron
+    4:  square
+    5:  saltire
+    6:  fess
+    7:  cross
+    8:  bend
+    9:  lozenge
+    10: pile

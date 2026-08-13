@@ -30,6 +30,7 @@ import numpy as np
 from arcana.palette import T, LINE, PAPER, DARK, MID, LIGHT, Palette
 from arcana.geometry import Geometry
 from arcana.elements import Element
+from arcana.layout import place
 
 # frame profile: (start_row, end_row, local_slot), outside in.
 # Shared by the corner, the edge and the backing strip so rules line up by
@@ -147,6 +148,28 @@ def render_border(p: Palette, geo: Geometry, corner: Element, edge: Element,
         g = p.bind(med, med_bank)
         out[g != T] = g[g != T]
     return out
+
+
+def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
+                   count: int, layout_name: str, pip_key: str) -> np.ndarray:
+    """A minor-arcana pip card as one global index matrix: field background,
+    `count` pips placed by the named layout, then the border (with the suit's
+    pip mounted in the cartouche) composited on top. Suit-invariant — colour is
+    applied by rendering with `palette.for_suit(...)`."""
+    card = np.zeros((geo.card_h, geo.card_w), np.uint8)
+    ox, oy = geo.art_origin
+
+    field = np.full((geo.art_h, geo.art_w), LIGHT, np.uint8)
+    paste(card, palette.bind(field, "field"), ox, oy)
+
+    pips = palette.bind(els[pip_key].layers["motif"], "motif")
+    for cx, cy in place(layout_name, count, geo):
+        paste_centered(card, pips, ox + cx, oy + cy)
+
+    med = mount(els[pip_key], els["cartouche"])
+    border = render_border(palette, geo, els["corner"], els["edge"], med)
+    card[border != T] = border[border != T]
+    return card
 
 
 def mount(pip: Element, cartouche: Element) -> Element:

@@ -173,6 +173,31 @@ belong in a config file. Three interchangeable formats via `tileio.read_any`:
 The authoring swatches are **grey on purpose** — local space means drawing value
 structure; a pink authoring palette would have you composing for pink.
 
+### Pip layouts (minor arcana)
+
+`arcana.layout` is a registry of arrangement algorithms; each maps a pip
+**count** and the geometry to a list of pip centres in art-window space.
+`compose.build_pip_card` fills the field, places the pips via a chosen
+algorithm, and composites the border with the suit medallion — one
+suit-invariant index matrix, coloured by the suit LUT at render time (same
+property as the border).
+
+Selection is **per rank**, because arrangement follows the count, not the suit.
+`deck.yaml`'s `pip_layouts` maps each rank (Ace–Ten) to an algorithm, with a
+`default`; `arcana cards --layout NAME` overrides every rank at once to compare
+algorithms.
+
+Algorithms, grouped: lines (`pale` │, `fess` ─, `bend` ╲), grids (`square`,
+`pile` ▽), and ordinaries (`chevron` ∧, `cross` +, `saltire` ✕, `diamond` ◇
+outline, `lozenge` ◆ filled), plus `single`.
+
+**Odd/even is explicit.** Every layout except `bend` is bilaterally symmetric
+about the vertical axis: odd counts put one pip *on* the axis, even counts use
+mirror pairs, so a card is never lopsided (a regression test asserts this for
+all layouts × counts 1–10). `bend` is the deliberate exception — heraldry's bend
+is a diagonal ordinary, so its x/y correlation is the point and reflection
+changes the pip set.
+
 ---
 
 ## Design rationale & the experiments behind it
@@ -260,20 +285,19 @@ lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
 
 ## Roadmap
 
-The **border pipeline is complete and tested**; the card pipeline is not
-started. 9 of 15 palette slots are exercised by the current build.
+The **border pipeline** and the **minor-arcana pip pipeline** are complete and
+tested: field background + pip placement (11 arrangement algorithms) + border,
+via `compose.build_pip_card` and `arcana cards`. All 15 palette slots except the
+`figure` bank are now exercised. Still open:
 
-1. **`compose.build_card()`** — read the pip lattice from a deck's `deck.yaml`,
-   place pips through the `field` bank, composite the border on top. Turns the
-   40 minor arcana into a loop and lights up the `field` bank.
-2. **Bitmap font** — I/V/X plus rank words and four suit names. Use
-   `draw.fontmode = "1"` (Pillow) or hand-draw glyphs; anti-aliased text is
-   where off-palette color gets in.
-3. **Alternate pip-tiling algorithms** — the lattice is one strategy; others can
-   plug in behind the same `field`-bank composition.
-4. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
+1. **Numerals & titles** — a bitmap font for I/V/X, rank words, and suit names in
+   the numeral/title bands. Use `draw.fontmode = "1"` (Pillow) or hand-draw
+   glyphs; anti-aliased text is where off-palette color gets in.
+2. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
    generative model (see the generation plan above) and composite the result
-   into the frame; possibly generate them in-repo.
+   into the frame; possibly generate them in-repo. Lights up the `figure` bank.
+3. **Court cards** — the 16 figures (page/knight/queen/king), likely sharing the
+   major-arcana image path.
 
 ## Open questions
 
