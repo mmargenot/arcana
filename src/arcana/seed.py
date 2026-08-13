@@ -20,24 +20,26 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 
-from arcana.palette import T, LINE, PAPER, DARK, MID, LIGHT
-from arcana.compose import profile_strip
+from arcana.palette import LINE, PAPER, DARK, MID
 from arcana.elements import write_tile, write_authoring_palette
 from arcana.tileio import from_ascii, write_ascii
 
 
 # ---------------------------------------------------------------- procedural
+# The corner and edge tiles are DECORATION only: their marks sit on a transparent
+# field and are pasted over the frame that compose.build_border draws. The frame
+# rules do not live here, so either tile can be swapped without disturbing them.
 def corner(C: int = 16) -> np.ndarray:
-    c = profile_strip(C, C)
-    c[:, 0:1] = LINE; c[:, 1:2] = MID; c[:, 2:3] = LIGHT
-    c[5:, 5:7] = DARK
+    """Corner motif — a diagonal staircase flourish, transparent elsewhere."""
+    c = np.zeros((C, C), np.uint8)
     for r, k in ((8, 8), (9, 11), (11, 9), (12, 12), (10, 14), (14, 10)):
         c[r:r + 2, k:k + 2] = DARK
     return c
 
 
 def edge(C: int = 16, E: int = 8) -> np.ndarray:
-    e = profile_strip(C, E)
+    """Edge motif — a dentil tab, transparent elsewhere."""
+    e = np.zeros((C, E), np.uint8)
     e[8:10, 1:7] = DARK; e[10:12, 3:5] = DARK
     return e
 

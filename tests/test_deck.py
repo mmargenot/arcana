@@ -79,20 +79,60 @@ def test_frame_symmetric(ctx):
 
 
 def test_frame_is_one_ring(ctx):
-    """Broken assembly scored 120 fragments; correct is one large component."""
+    """The outer rule must be one continuous ring around the card, not a heap of
+    fragments (a broken assembly once scored 120 pieces). The beveled frame is
+    two concentric rule rings plus loose motif marks, so assert the largest
+    component rings the whole card — spanning top-to-bottom and left-to-right."""
     _, geo, _, els = ctx
     f, _ = compose.build_border(geo, els["corner"], els["edge"])
     from scipy import ndimage
     lab, _ = ndimage.label((f != 0).astype(np.uint8),
                            structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
-    assert np.bincount(lab.ravel())[1:].max() > 4000
+    biggest = np.bincount(lab.ravel())[1:].argmax() + 1
+    ys, xs = np.where(lab == biggest)
+    assert ys.min() == 0 and ys.max() == geo.card_h - 1      # touches top and bottom
+    assert xs.min() == 0 and xs.max() == geo.card_w - 1      # touches left and right
+    assert (lab == biggest).sum() > 2000                     # a substantial ring
 
 
 def test_side_edge_keeps_outer_rule(ctx):
-    """A side edge is the top edge TRANSPOSED. An extra flip moves the rule
-    to the inner side of the band, losing it for the whole length."""
-    _, _, _, els = ctx
-    assert (compose.orient(els["edge"].layers["border"])[:, 0] != 0).all()
+    """The outer LINE rule is structural now — drawn by build_border, not carried
+    by the edge tile — so it must stay unbroken along all four sides. A gap here
+    is the classic 'rule on the wrong side of the band' bug."""
+    from arcana.palette import LINE
+    _, geo, _, els = ctx
+    f, _ = compose.build_border(geo, els["corner"], els["edge"])
+    W, H = geo.card_w, geo.card_h
+    assert (f[0, :] == LINE).all() and (f[H - 1, :] == LINE).all()
+    assert (f[:, 0] == LINE).all() and (f[:, W - 1] == LINE).all()
+
+
+def test_corner_beveled(ctx):
+    """The corner mitres instead of butting square. The old square cut showed a
+    vertical stripe at the corner (f[0,1]=MID, f[0,2]=LIGHT); a bevel wraps the
+    outer LINE around the corner and steps the rules along the diagonal."""
+    from arcana.palette import LINE, MID, LIGHT
+    _, geo, _, els = ctx
+    f, _ = compose.build_border(geo, els["corner"], els["edge"])
+    assert f[0, 0] == f[0, 1] == f[0, 2] == LINE          # outer rule wraps corner
+    assert (f[0, 0], f[1, 1], f[2, 2]) == (LINE, MID, LIGHT)   # mitre along diagonal
+    assert f[1, 2] == f[2, 1] == MID                      # symmetric about diagonal
+
+
+def test_frame_independent_of_motif(ctx):
+    """The beveled frame is structural: swapping the corner/edge motif must not
+    move a single rule pixel. Build once with the real motifs and once with blank
+    ones; every pixel of the bare rule frame must be identical in both."""
+    from arcana.elements import Element
+    _, geo, _, els = ctx
+    blank_corner = Element(name="blank", role="corner", size=(16, 16),
+                           layers={"border": np.zeros((16, 16), np.uint8)})
+    blank_edge = Element(name="blank", role="edge", size=(16, 8),
+                         layers={"border": np.zeros((16, 8), np.uint8)})
+    real, _ = compose.build_border(geo, els["corner"], els["edge"])
+    bare, _ = compose.build_border(geo, blank_corner, blank_edge)
+    rule = bare != 0                          # every non-empty bare pixel is a rule
+    assert np.array_equal(real[rule], bare[rule])
 
 
 def test_cartouche_opaque(ctx):
@@ -145,7 +185,7 @@ def test_antialiasing_rejected(tmp_path, ctx):
     a = els["corner"].layers["border"]
     tileio.write_rgb(a, tmp_path / "t.png")
     rgba = np.array(Image.open(tmp_path / "t.png").convert("RGBA"))
-    rgba[5, 5, :3] = [100, 90, 110]
+    rgba[8, 8, :3] = [100, 90, 110]      # (8,8) is an opaque motif pixel
     Image.fromarray(rgba, "RGBA").save(tmp_path / "aa.png")
     with pytest.raises(AssetError, match="off the authoring palette"):
         tileio.read_rgb(tmp_path / "aa.png")

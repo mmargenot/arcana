@@ -49,8 +49,11 @@ lattice:
 
 # ---------------------------------------------------------------- elements
 # role determines placement:
-#   corner    mirrored into all four corners
-#   edge      repeated along each run, mirrored across the axes
+#   corner    decorative motif overlaid on the beveled frame's corners,
+#             mirrored into all four corners (the frame line itself is drawn
+#             structurally by compose, not carried by this tile)
+#   edge      decorative motif repeated along each run and mirrored across the
+#             axes; like corner, it is ornament over the structural frame
 #   medallion placed at edge centres, NEVER mirrored (a cup on its side
 #             is not a cup), and drawn opaque so the frame cannot bisect it
 #   pip       placed on the field lattice, mirrored horizontally
