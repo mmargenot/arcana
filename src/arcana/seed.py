@@ -23,6 +23,7 @@ import numpy as np
 from arcana.palette import LINE, PAPER, DARK, MID
 from arcana.elements import write_tile, write_authoring_palette
 from arcana.tileio import from_ascii, write_ascii
+from arcana.text import Font, CELL_W, CELL_H, INK
 
 
 # ---------------------------------------------------------------- procedural
@@ -51,6 +52,20 @@ def roundel(S: int = 24) -> np.ndarray:
     c[r <= S / 2 - 0.4] = LINE
     c[r <= S / 2 - 1.2] = MID
     c[r <= S / 2 - 2.6] = PAPER
+    return c
+
+
+def lozenge(S: int = 24) -> np.ndarray:
+    """A heraldic lozenge — a solid diamond, LINE outline over a MID fill, on a
+    transparent field. An abstract medallion: bound to the `motif` bank it reads
+    as a suit-coloured gem. The body is solid so the frame rule can't bisect it;
+    the box corners stay transparent (the rule runs on, uninterrupted, behind)."""
+    c = np.zeros((S, S), np.uint8)
+    yy, xx = np.mgrid[0:S, 0:S]
+    half = (S - 1) / 2
+    d = (np.abs(xx - half) + np.abs(yy - half)) / (S / 2)   # L1 radius: 0 centre, 1 at edge
+    c[d <= 1.0] = LINE
+    c[d <= 1.0 - 1.5 / (S / 2)] = MID
     return c
 
 
@@ -155,6 +170,70 @@ PIPS_ASCII = {
 def pip(name: str) -> np.ndarray:
     """The 16x16 local-index matrix for a suit pip."""
     return from_ascii(PIPS_ASCII[name])
+
+
+# ---------------------------------------------------------------- font (5x7)
+# The placeholder label font, kept in code like the pips. Each glyph is a 5x7
+# cell of '#' (ink) / '.' (blank); `placeholder_font` centres it in the 6x10
+# box `arcana.text` lays out. Uppercase-only titles keep the inventory small:
+# digits, A-Z, and hyphen (space needs no ink). A real font drops in later via
+# the deck override path (`text.load_font`).
+FONT_5X7 = {
+    "0": (".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."),
+    "1": ("..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."),
+    "2": (".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"),
+    "3": ("#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."),
+    "4": ("...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."),
+    "5": ("#####", "#....", "####.", "....#", "....#", "#...#", ".###."),
+    "6": (".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."),
+    "7": ("#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."),
+    "8": (".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."),
+    "9": (".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."),
+    "A": (".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+    "B": ("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
+    "C": (".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."),
+    "D": ("####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."),
+    "E": ("#####", "#....", "#....", "####.", "#....", "#....", "#####"),
+    "F": ("#####", "#....", "#....", "####.", "#....", "#....", "#...."),
+    "G": (".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."),
+    "H": ("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+    "I": (".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."),
+    "J": ("..###", "...#.", "...#.", "...#.", "#..#.", "#..#.", ".##.."),
+    "K": ("#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"),
+    "L": ("#....", "#....", "#....", "#....", "#....", "#....", "#####"),
+    "M": ("#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"),
+    "N": ("#...#", "##..#", "#.#.#", "#.#.#", "#..##", "#...#", "#...#"),
+    "O": (".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+    "P": ("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
+    "Q": (".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"),
+    "R": ("####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"),
+    "S": (".####", "#....", "#....", ".###.", "....#", "....#", "####."),
+    "T": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
+    "U": ("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+    "V": ("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+    "W": ("#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"),
+    "X": ("#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"),
+    "Y": ("#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."),
+    "Z": ("#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"),
+    "-": (".....", ".....", ".....", "#####", ".....", ".....", "....."),
+}
+
+
+def _glyph_tile(rows: tuple[str, ...]) -> np.ndarray:
+    """A 5x7 pattern centred in the 6x10 cell text.py lays out (1px top pad)."""
+    t = np.zeros((CELL_H, CELL_W), np.uint8)
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch == "#":
+                t[y + 1, x] = INK
+    return t
+
+
+def placeholder_font() -> Font:
+    """The engine's built-in label font as a `text.Font`."""
+    glyphs = {ch: _glyph_tile(rows) for ch, rows in FONT_5X7.items()}
+    glyphs[" "] = np.zeros((CELL_H, CELL_W), np.uint8)
+    return Font(glyphs=glyphs)
 
 
 # ---------------------------------------------------------------- seed

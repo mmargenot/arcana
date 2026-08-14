@@ -105,10 +105,14 @@ the wrong axis).
 
 | bank | carries | varies by |
 |---|---|---|
-| `border` | frame, corner, edge | nothing |
+| `border` | frame, corner, edge, **labels** | nothing |
 | `field` | card background | suit |
 | `motif` | pips, ornament | suit |
-| `figure` | skin | nothing |
+| `figure` | skin (major figure image) | nothing |
+
+Labels bind to `border` (not `figure`): a title matches the frame and is uniform
+across a deck, per the maintainer's call. The `figure` bank is reserved for the
+major-arcana figure image, still unexercised.
 
 A card may use all four — same as an NES background where each tile picks a
 palette but the screen uses every one. Multi-layer elements get >3 colors by
@@ -160,6 +164,21 @@ pip let the frame's inner rule show through and bisect thin motifs (wand shaft,
 sword blade). Opacity is the fix; the ring is what makes it pop. Sized at 24
 (tested against 20, which clipped pip corners and doubled the pentacle's ring).
 Asserted at load via `opaque: true`.
+
+**Configurable** (`compose.build_medallion`, `border.medallion` in deck.yaml,
+`--medallion`/`--medallion-scale`). Once titles carry a card's identity the full
+medallion competes with them, so it's tunable:
+- `style: suit | lozenge | none` — the pip cartouche, an abstract suit-coloured
+  diamond (`seed.lozenge`, bound to `motif`), or nothing.
+- `scale` — a size multiplier via the NN `_scale_tile`, given as a number or a
+  keyword (`full`/`large`/`small`/`smaller`/`tiny`); the deck ships `small`.
+- `none` — `build_border` continues the edge dentils through the medallion slot
+  (horizontal fills exactly; the vertical run's non-tile-divisible remainder —
+  the reason the slot exists — leaves a ~4px centre gap, rule still continuous).
+
+The `medallion.horizontal/vertical` slot stays in `geometry` regardless — it's
+load-bearing for edge-tile divisibility. Defaults (`suit`, `scale 1.0`)
+reproduce the original medallion byte-for-byte.
 
 ### Assets: YAML holds structure, tiles hold pixels
 
@@ -269,6 +288,40 @@ heraldry: **divisions** (`per-pale`, `per-fess`, `per-bend`[`-sinister`],
 art window) so the pattern never runs into the frame. A regression test asserts
 the outer ring is uniform ground for every design.
 
+### Labels (numerals & titles)
+
+A card names itself with a **bitmap font**, the same "authored art, chosen by
+string" model as pips and fields — letterforms are drawn once; a label is picked
+by plaintext, never redrawn per card.
+
+- **Font** (`arcana.text`) — a fixed 6×10 cell, 7px advance, one ink slot on a
+  transparent field. Metrics are named constants; the placeholder glyphs live in
+  code (`seed.placeholder_font`, like the pips), and a deck overrides them by
+  dropping tiles in its `assets/font/` (same first-file-wins story as tiles).
+  `render_line` → `fit_line` (**one line, always**: condense the advance, then a
+  last-resort NN squeeze) → `render_band` (centre in a band). No mirroring —
+  text is not bilaterally symmetric.
+- **Content** (`arcana.data`) — canonical RWS major names, rank words, and the
+  Roman/Arabic helpers, as engine defaults a deck overrides in a `labels:` block
+  (`numeral_style`, `split`, `suit_titles`, `major_titles`).
+- **Composition** (`arcana.compose`) — a card is a stack of composable pieces:
+  a **content** object (`build_development` for a minor's field+pips, or
+  `build_mural` for a major's scene), the **border**, and an optional **label**
+  (`build_label`), combined by one `assemble` compositor. `build_label` inks the
+  glyphs in the **`border` bank** (uniform per deck, matches the frame). Labels
+  **hug the art window** (`band_rects`) — a `CELL_H` strip on the art-side of
+  each band — to clear the outer rule and edge medallions.
+- **Z-order** — a minor's title paints UNDER the border (between pips and frame,
+  so the rule ring is never clipped); a major's title floats OVER the mural
+  (`label_over_border`). By default everything is one combined title in the
+  bottom band, which never fights the top medallion; `split: true` is the
+  two-band look (numeral top, name bottom) and is where the cramped top band
+  gets tuned on renders.
+- **Suit-invariance boundary** — a rank numeral is identical across suits (LUT
+  swap only), but a suit-name title deliberately differs; both are asserted.
+  `build_pip_card` with no `font` is byte-identical to before, so the base
+  suit-invariance guarantee is untouched.
+
 ---
 
 ## Design rationale & the experiments behind it
@@ -351,24 +404,27 @@ lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
 | **`Path.with_suffix`** | on dotted stems it eats the bank name → `corner.txt` | file-not-found, far from the cause |
 | **Unquoted YAML hex** | `#RRGGBB` is a comment; parses as null | no error until render |
 | **Off-rung Swords** | +14 L at the mid rung | only visible with cards side by side |
+| **Label clips the frame** | a title bleeding into the frame rule breaks the ring | minor labels paint UNDER the border, so the rule wins — `test_frame_not_clipped_by_labels` |
+| **Anti-aliased glyph** | a soft glyph edge lands off the authoring palette | glyphs are single-slot local ink, asserted `⊆ {0, INK}` |
+| **Title wraps/overflows** | a long major spills the band or wraps to two lines | `fit_line` guarantees one line ≤ width for every deck label |
 
 ---
 
 ## Roadmap
 
-The **border pipeline** and the **minor-arcana pip pipeline** are complete and
-tested: two independent axes — a heraldic **field design** (per suit,
-`arcana.field`) and a **pip arrangement** (per rank, `arcana.layout`, 13
-algorithms) — composited with the border via `compose.build_pip_card` and
-`arcana cards`. The **`figure` bank is now the only unexercised bank**. Still open:
+The **border pipeline**, the **minor-arcana pip pipeline**, and the **labeling
+pipeline** are complete and tested: two independent card axes — a heraldic
+**field design** (per suit, `arcana.field`) and a **pip arrangement** (per rank,
+`arcana.layout`, 13 algorithms) — plus a **bitmap-font label** (`arcana.text` +
+`arcana.data`), composited with the border via `compose.build_pip_card` /
+`build_major_card` and `arcana cards` / `arcana majors`. The **`figure` bank is
+the only unexercised bank**. Still open:
 
-1. **Numerals & titles** — a bitmap font for I/V/X, rank words, and suit names in
-   the numeral/title bands. Use `draw.fontmode = "1"` (Pillow) or hand-draw
-   glyphs; anti-aliased text is where off-palette color gets in.
-2. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
+1. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
    generative model (see the generation plan above) and composite the result
-   into the frame; possibly generate them in-repo. Lights up the `figure` bank.
-3. **Court cards** — the 16 figures (page/knight/queen/king), likely sharing the
+   into the mural (`compose.build_mural` leaves the seam). Lights up the
+   `figure` bank.
+2. **Court cards** — the 16 figures (page/knight/queen/king), likely sharing the
    major-arcana image path.
 
 ## Open questions

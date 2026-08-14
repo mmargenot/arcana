@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from arcana import compose, tileio, seed
+from arcana import compose, tileio, seed, data
+from arcana.seed import placeholder_font
 from arcana.palette import Palette
 from arcana.geometry import Geometry, load_config
 from arcana.elements import load_all, AssetError, read_tile, write_tile
@@ -196,6 +197,163 @@ def test_pip_card_field_design_applied(ctx):
     checky = compose.build_pip_card(pal, geo, els, 4, "square", cfg["suit_pips"]["cups"], "checky")
     assert plain.shape == checky.shape
     assert not np.array_equal(plain, checky)
+
+
+# --- labels -------------------------------------------------------------
+FONT = placeholder_font()
+
+
+def test_labelled_card_shape_and_indices(ctx):
+    """A labelled card is still one card-sized global-index matrix — labels are
+    composited in, not a second pass at render."""
+    pal, geo, cfg, els = ctx
+    top, bottom = data.minor_label(3, "cups")
+    m = compose.build_pip_card(pal, geo, els, 3, "chevron", cfg["suit_pips"]["cups"],
+                               font=FONT, top=top, bottom=bottom)
+    assert m.shape == (geo.card_h, geo.card_w)
+    assert int(m.max()) < len(pal.colors)
+
+
+def test_labels_off_by_default_leaves_base_untouched(ctx):
+    """No font -> no labels: the base card is byte-identical, so the existing
+    suit-invariance guarantee is preserved."""
+    pal, geo, cfg, els = ctx
+    base = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"])
+    same = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"],
+                                  font=FONT, top=None, bottom=None)
+    assert np.array_equal(base, same)
+
+
+def test_rank_numeral_is_suit_invariant_but_suit_title_is_not(ctx):
+    """The suit-invariance boundary: a rank numeral is the SAME matrix for every
+    suit (LUT swap only), but a suit-name title deliberately differs — it names
+    the suit, so it cannot be suit-invariant."""
+    pal, geo, cfg, els = ctx
+    numeral = [compose.build_pip_card(pal.for_suit(s), geo, els, 3, "chevron",
+                                      cfg["suit_pips"]["cups"], font=FONT, top="3")
+               for s in ("cups", "wands", "swords")]
+    assert all(np.array_equal(numeral[0], x) for x in numeral[1:])
+
+    titled = [compose.build_pip_card(pal.for_suit(s), geo, els, 3, "chevron",
+                                     cfg["suit_pips"][s], font=FONT,
+                                     bottom=data.minor_label(3, s)[1])
+              for s in ("cups", "wands")]
+    assert not np.array_equal(titled[0], titled[1])
+
+
+def test_frame_not_clipped_by_labels(ctx):
+    """Minor labels paint UNDER the border, so the frame rule ring stays
+    contiguous — a label bleeding into the frame is exactly this bug."""
+    pal, geo, cfg, els = ctx
+    m = compose.build_pip_card(pal, geo, els, 10, "square", cfg["suit_pips"]["pentacles"],
+                               font=FONT, top="10", bottom="TEN OF PENTACLES")
+    # the composed card's outer LINE ring is unbroken on all four sides
+    from arcana.palette import LINE
+    W, H = geo.card_w, geo.card_h
+    assert (m[0, :] == LINE).all() and (m[H - 1, :] == LINE).all()
+    assert (m[:, 0] == LINE).all() and (m[:, W - 1] == LINE).all()
+
+
+def test_build_major_card_shape_and_indices(ctx):
+    """The major builder produces a card-sized global-index matrix with its label
+    floating over the mural (figure image is a later seam)."""
+    pal, geo, cfg, els = ctx
+    top, bottom = data.major_label(0, split=True)
+    m = compose.build_major_card(pal, geo, els, FONT, top=top, bottom=bottom,
+                                 pip_key=cfg["suit_pips"]["majors"])
+    assert m.shape == (geo.card_h, geo.card_w)
+    assert int(m.max()) < len(pal.colors)
+
+
+def test_band_rects_stay_inside_the_bands(ctx):
+    """Usable label rects are derived from geo and sit within their bands, inset
+    from the card sides — never spilling into the art window or off-card."""
+    _, geo, _, _ = ctx
+    r = compose.band_rects(geo)
+    nx0, ny0, nx1, ny1 = r["numeral"]
+    tx0, ty0, tx1, ty1 = r["title"]
+    assert 0 <= ny0 < ny1 <= geo.band_numeral                       # within top band
+    assert geo.band_numeral + geo.art_h <= ty0 < ty1 <= geo.card_h  # within bottom band
+    assert nx0 == tx0 == geo.corner and nx1 == tx1 == geo.card_w - geo.corner
+
+
+# --- medallions ---------------------------------------------------------
+def test_default_medallion_matches_mount(ctx):
+    """The default (suit, scale 1.0) reproduces the old `mount(pip, cartouche)`
+    medallion byte-for-byte — so every pre-existing frame/suit-invariance test
+    still describes the shipped output."""
+    _, _, cfg, els = ctx
+    made = compose.build_medallion(els, cfg["suit_pips"]["cups"])
+    mounted = compose.mount(els[cfg["suit_pips"]["cups"]], els["cartouche"])
+    assert np.array_equal(made.layers["motif"], mounted.layers["motif"])
+
+
+def test_medallion_styles_and_scale(ctx):
+    """suit and lozenge build card-legal local-index medallions; none omits it;
+    a scale < 1 yields a smaller emblem (the knob that shrinks it)."""
+    from arcana.palette import MAX_LOCAL
+    _, _, cfg, els = ctx
+    pk = cfg["suit_pips"]["cups"]
+    assert compose.build_medallion(els, pk, style="none") is None
+    full = compose.build_medallion(els, pk, style="suit", scale=1.0)
+    small = compose.build_medallion(els, pk, style="suit", scale=0.5)
+    loz = compose.build_medallion(els, pk, style="lozenge", scale=0.5)
+    for m in (full, small, loz):
+        assert int(m.layers["motif"].max()) <= MAX_LOCAL
+    assert small.layers["motif"].shape[0] < full.layers["motif"].shape[0]
+
+
+def test_lozenge_is_a_solid_suit_gem(ctx):
+    """The lozenge is a solid diamond — LINE outline over a MID fill (motif bank
+    => suit colour), transparent box corners. A hollow or off-slot gem is the bug."""
+    from arcana.palette import T, LINE, MID
+    _, _, cfg, els = ctx
+    loz = compose.build_medallion(els, cfg["suit_pips"]["cups"], style="lozenge").layers["motif"]
+    assert set(np.unique(loz).tolist()) <= {T, LINE, MID}
+    S = loz.shape[0]
+    assert loz[S // 2, S // 2] == MID           # solid centre
+    assert loz[0, 0] == T                        # transparent corner
+
+
+def test_no_medallion_continues_the_border(ctx):
+    """style=none continues the edge ornament through the medallion slot, and the
+    frame stays one contiguous, symmetric ring — a broken border from the fill is
+    exactly this bug."""
+    from arcana.palette import DARK
+    _, geo, _, els = ctx
+    f, _ = compose.build_border(geo, els["corner"], els["edge"], None)
+    assert all(compose.check_contiguous(f, geo).values())
+    assert all(compose.check_symmetry(f).values())
+    # dentil ornament now reaches the top-edge centre (rows below the rule, which
+    # were bare before the fill) — proves the slot is filled, not left blank
+    cx = geo.card_w // 2
+    assert (f[8:12, cx - 6:cx + 6] == DARK).any()
+
+
+def test_medallion_size_keywords_resolve(ctx):
+    """Medallion scale accepts named sizes (`small`, `tiny`, …) or a number, and
+    the deck ships the `small` keyword — a typo'd keyword is rejected loudly."""
+    from arcana.cli import _resolve_scale, _medallion_opts, MEDALLION_SIZES
+    _, _, cfg, _ = ctx
+    assert _resolve_scale("small") == MEDALLION_SIZES["small"] == 0.5
+    assert _resolve_scale("0.5") == 0.5 and _resolve_scale(0.5) == 0.5
+    assert _medallion_opts(cfg) == ("suit", 0.5)                 # deck default
+    assert _medallion_opts(cfg, scale_override="tiny")[1] == MEDALLION_SIZES["tiny"]
+    with pytest.raises(SystemExit, match="unknown medallion size"):
+        _resolve_scale("smallish")
+
+
+def test_lozenge_card_is_suit_invariant(ctx):
+    """A lozenge card's index matrix is identical across suits (motif binding is
+    index-level) — the suit is a LUT swap, same as everything else."""
+    pal, geo, cfg, els = ctx
+    base = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"],
+                                  med_style="lozenge", med_scale=0.5)
+    for suit in ("wands", "swords", "pentacles"):
+        other = compose.build_pip_card(pal.for_suit(suit), geo, els, 5, "saltire",
+                                       cfg["suit_pips"]["cups"], med_style="lozenge",
+                                       med_scale=0.5)
+        assert np.array_equal(base, other)
 
 
 # --- asset io -----------------------------------------------------------

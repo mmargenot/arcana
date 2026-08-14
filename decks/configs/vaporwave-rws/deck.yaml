@@ -19,8 +19,10 @@ border:
   corner: 16                # corner tile is 16x16; also the band thickness
   edge:   8                 # repeating edge tile run length
   medallion:
-    horizontal: 16          # slot width on top/bottom edges
+    horizontal: 16          # slot width on top/bottom edges (geometry — divisibility)
     vertical:   20          # slot height on left/right edges
+    style: suit             # suit (pip in cartouche) | lozenge (suit-coloured diamond) | none
+    scale: small            # keyword (full/large/small/smaller/tiny) or a number; `none` continues the border
 
 # ---------------------------------------------------------------- elements
 # role determines placement:
@@ -111,3 +113,15 @@ field_designs:
     swords: paly          # air — vertical pales
     pentacles: checky     # earth — a chequered ground
     majors: plain
+
+# Bitmap text labels (arcana.text + arcana.data). Numeral band (top) and title
+# band (bottom) carry a card's identity, inked in the `border` bank so titles
+# match the frame and vary with the palette. Engine ships default names; a deck
+# overrides them here. All keys optional — these are the defaults.
+labels:
+  enabled: true
+  numeral_style: arabic   # arabic (A,2..10) | words (ACE..TEN) — the split rank token
+  split: false            # false: one combined title in the bottom band
+                          # true:  rank/roman in the numeral band, name in the title band
+  # suit_titles: {}       # per-suit display overrides, else the suit key UPPERCASED
+  # major_titles: []      # major-name overrides by number 0..21, else canonical RWS
