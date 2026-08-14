@@ -170,7 +170,8 @@ Asserted at load via `opaque: true`.
 medallion competes with them, so it's tunable:
 - `style: suit | lozenge | none` — the pip cartouche, an abstract suit-coloured
   diamond (`seed.lozenge`, bound to `motif`), or nothing.
-- `scale` — a size multiplier via the NN `_scale_tile`; the deck ships `0.5`.
+- `scale` — a size multiplier via the NN `_scale_tile`, given as a number or a
+  keyword (`full`/`large`/`small`/`smaller`/`tiny`); the deck ships `small`.
 - `none` — `build_border` continues the edge dentils through the medallion slot
   (horizontal fills exactly; the vertical run's non-tile-divisible remainder —
   the reason the slot exists — leaves a ~4px centre gap, rule still continuous).

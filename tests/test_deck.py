@@ -330,6 +330,19 @@ def test_no_medallion_continues_the_border(ctx):
     assert (f[8:12, cx - 6:cx + 6] == DARK).any()
 
 
+def test_medallion_size_keywords_resolve(ctx):
+    """Medallion scale accepts named sizes (`small`, `tiny`, …) or a number, and
+    the deck ships the `small` keyword — a typo'd keyword is rejected loudly."""
+    from arcana.cli import _resolve_scale, _medallion_opts, MEDALLION_SIZES
+    _, _, cfg, _ = ctx
+    assert _resolve_scale("small") == MEDALLION_SIZES["small"] == 0.5
+    assert _resolve_scale("0.5") == 0.5 and _resolve_scale(0.5) == 0.5
+    assert _medallion_opts(cfg) == ("suit", 0.5)                 # deck default
+    assert _medallion_opts(cfg, scale_override="tiny")[1] == MEDALLION_SIZES["tiny"]
+    with pytest.raises(SystemExit, match="unknown medallion size"):
+        _resolve_scale("smallish")
+
+
 def test_lozenge_card_is_suit_invariant(ctx):
     """A lozenge card's index matrix is identical across suits (motif binding is
     index-level) — the suit is a LUT swap, same as everything else."""

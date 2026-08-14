@@ -32,6 +32,23 @@ from arcana.compose import (build_border, render_border, build_medallion,
                             check_symmetry, check_contiguous)
 
 MEDALLION_STYLES = ("suit", "lozenge", "none")
+# Named medallion sizes — keywords for the scale knob, so a deck (or the CLI) can
+# say `small` instead of `0.5`. A bare number still works.
+MEDALLION_SIZES = {"full": 1.0, "large": 0.75, "small": 0.5, "smaller": 0.4, "tiny": 0.3}
+
+
+def _resolve_scale(value) -> float:
+    """A medallion scale from a keyword (`small`, `tiny`, …) or a number."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    key = str(value).strip().lower()
+    if key in MEDALLION_SIZES:
+        return MEDALLION_SIZES[key]
+    try:
+        return float(key)
+    except ValueError:
+        raise SystemExit(f"unknown medallion size {value!r}; use a number or one "
+                         f"of {', '.join(MEDALLION_SIZES)}")
 
 
 def cmd_seed(name: str, configs_root: Path, artifacts_root: Path) -> Path:
@@ -94,18 +111,18 @@ def _field_for_suit(cfg: dict, suit: str, override: str | None) -> str:
 
 
 def _medallion_opts(cfg: dict, style_override: str | None = None,
-                    scale_override: float | None = None) -> tuple[str, float]:
+                    scale_override: str | None = None) -> tuple[str, float]:
     """Medallion (style, scale) from `border.medallion`, CLI override winning —
     same default-vs-override pattern as layout/field."""
     spec = cfg.get("border", {}).get("medallion", {})
     style = style_override or spec.get("style", "suit")
     scale = scale_override if scale_override is not None else spec.get("scale", 1.0)
-    return style, float(scale)
+    return style, _resolve_scale(scale)
 
 
 def cmd_cards(name: str, layout_override: str | None, field_override: str | None,
               suit: str | None, all_suits: bool, scale: int, no_labels: bool,
-              med_override: str | None, med_scale_override: float | None,
+              med_override: str | None, med_scale_override: str | None,
               configs_root: Path, artifacts_root: Path) -> Path:
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
@@ -169,7 +186,7 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
 
 
 def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
-               med_scale_override: float | None, configs_root: Path,
+               med_scale_override: str | None, configs_root: Path,
                artifacts_root: Path) -> Path:
     """Render the 22 major arcana (labeling half — the figure image is a later
     roadmap item; `build_major_card` leaves the seam)."""
@@ -241,8 +258,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="render bare cards, without numeral/title labels")
     c.add_argument("--medallion", choices=MEDALLION_STYLES, metavar="STYLE",
                    help="edge medallion: suit | lozenge | none (default: from deck.yaml)")
-    c.add_argument("--medallion-scale", type=float, metavar="F",
-                   help="scale the medallion (e.g. 0.5); default from deck.yaml")
+    c.add_argument("--medallion-scale", metavar="SIZE",
+                   help="medallion size: a keyword (full/large/small/smaller/tiny) "
+                        "or a number (e.g. 0.5); default from deck.yaml")
 
     m = sub.add_parser("majors", help="render the 22 major arcana (labeling half)")
     m.add_argument("deck")

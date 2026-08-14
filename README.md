@@ -67,8 +67,9 @@ Everything is written under `decks/artifacts/<deck>/` (git-ignored).
   numeral and title bands). `--no-labels` renders bare cards for comparison.
   - **medallion** — the suit emblem at the edge midpoints is tunable
     (`border.medallion` in `deck.yaml`; `--medallion suit|lozenge|none` and
-    `--medallion-scale F`): a scaled suit cartouche, an abstract suit-colored
-    lozenge, or none (the border ornament then continues through the space).
+    `--medallion-scale SIZE`): a scaled suit cartouche, an abstract suit-colored
+    lozenge, or none (the border ornament then continues through the space). Size
+    takes a keyword (`full`/`large`/`small`/`smaller`/`tiny`) or a number.
 - `arcana majors <deck>` renders the 22 major arcana with labels (the figure
   image in the art window is a later roadmap item; the builder leaves the seam).
 - `arcana seed <deck>` just (re)writes the placeholder tiles.

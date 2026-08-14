@@ -22,7 +22,7 @@ border:
     horizontal: 16          # slot width on top/bottom edges (geometry — divisibility)
     vertical:   20          # slot height on left/right edges
     style: suit             # suit (pip in cartouche) | lozenge (suit-coloured diamond) | none
-    scale: 0.5              # size multiplier of the base emblem; `none` continues the border
+    scale: small            # keyword (full/large/small/smaller/tiny) or a number; `none` continues the border
 
 # ---------------------------------------------------------------- elements
 # role determines placement:
