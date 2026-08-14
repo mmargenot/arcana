@@ -30,7 +30,7 @@ from collections.abc import Callable
 import numpy as np
 
 from arcana.geometry import Geometry
-from arcana.palette import DARK, MID, LIGHT
+from arcana.palette import MID, LIGHT
 
 DesignFn = Callable[[int, int, int, int], np.ndarray]  # (h, w, ground, device)
 
@@ -46,6 +46,16 @@ def register(name: str) -> Callable[[DesignFn], DesignFn]:
 
 def names() -> list[str]:
     return sorted(_REGISTRY)
+
+
+def field_for_suit(deck_cfg: dict, suit: str, override: str | None = None) -> str:
+    """Resolve the field design for a suit from a deck's `field_designs` block:
+    an explicit `--field` override wins, else `by_suit`, else `default`
+    (falling back to `plain`)."""
+    if override:
+        return override
+    spec = deck_cfg.get("field_designs", {})
+    return spec.get("by_suit", {}).get(suit) or spec.get("default", "plain")
 
 
 def insets(geo: Geometry, margin: int = 8) -> tuple[int, int]:

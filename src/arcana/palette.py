@@ -74,10 +74,6 @@ class Palette:
     def __getitem__(self, i: int) -> str | None:
         return self.colors[i]
 
-    def global_index(self, bank: str, slot: int) -> int:
-        """slot is DARK/MID/LIGHT (3/4/5)."""
-        return 3 + 3 * BANKS.index(bank) + (slot - DARK)
-
     def bind(self, art: np.ndarray, bank: str) -> np.ndarray:
         """Local index matrix -> global index matrix."""
         hi = int(art.max(initial=0))

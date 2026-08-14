@@ -22,7 +22,8 @@ from pathlib import Path
 from string import ascii_uppercase
 import numpy as np
 
-from arcana.palette import T, DARK
+from arcana.palette import DARK
+from arcana.elements import blit as _blit   # shared clip-safe paste (leaf module, no cycle)
 
 # --- metrics ------------------------------------------------------------
 # A 6x10 glyph box with 1px tracking -> 7px advance. At 144px art width that is
@@ -50,19 +51,6 @@ class Font:
         """The cell tile for `ch`. Space/unknown -> a blank cell (advance, no ink)."""
         g = self.glyphs.get(ch.upper())
         return g if g is not None else np.zeros((self.cell_h, self.cell_w), np.uint8)
-
-
-def _blit(dst: np.ndarray, src: np.ndarray, x: int, y: int) -> None:
-    """Clip-safe alpha copy (index 0 transparent). Local to avoid a compose
-    import cycle — text is a leaf module."""
-    h, w = src.shape
-    x0, y0 = max(0, x), max(0, y)
-    x1, y1 = min(dst.shape[1], x + w), min(dst.shape[0], y + h)
-    if x0 >= x1 or y0 >= y1:
-        return
-    sub = src[y0 - y:y1 - y, x0 - x:x1 - x]
-    win = dst[y0:y1, x0:x1]
-    win[sub != T] = sub[sub != T]
 
 
 # --- rendering ----------------------------------------------------------

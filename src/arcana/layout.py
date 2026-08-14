@@ -12,7 +12,7 @@ counts, so a card is never lopsided. `bend` is the exception: heraldry's bend is
 a diagonal ordinary, deliberately not left–right symmetric.
 
 Algorithm functions work in normalised coordinates `(u, v)` in [-1, 1] (u right,
-v down); `place()` maps them into the padded art window and rounds to pixels.
+v down); `arrange()` maps them into the padded art window and rounds to pixels.
 """
 from __future__ import annotations
 import math
@@ -302,9 +302,15 @@ def arrange(name: str, count: int, geo: Geometry, *, gap: int = PIP_GAP,
     raise InvalidPipLayout(name, count, reach, gap, min_scale, geo)
 
 
-def place(name: str, count: int, geo: Geometry) -> list[Point]:
-    """Centres only, at the default pip config (back-compat / tests)."""
-    return arrange(name, count, geo)[0]
+def layout_for_rank(deck_cfg: dict, rank: int, override: str | None = None) -> str:
+    """Resolve the pip layout for a rank from a deck's `pip_layouts` block:
+    an explicit `--layout` override wins, else `by_rank` (int or str key), else
+    `default` (falling back to `square`). Shared by the CLI and the validator."""
+    if override:
+        return override
+    spec = deck_cfg.get("pip_layouts", {})
+    by_rank = spec.get("by_rank", {})
+    return by_rank.get(rank) or by_rank.get(str(rank)) or spec.get("default", "square")
 
 
 def pip_config(deck_cfg: dict | None) -> dict:
@@ -319,11 +325,9 @@ def validate_pip_layouts(deck_cfg: dict, geo: Geometry) -> None:
     """Every rank's resolved layout must place its pips at ≥ min_scale with the
     buffer inside the card. Raises a single ValueError listing all offenders."""
     pip = pip_config(deck_cfg)
-    spec = deck_cfg.get("pip_layouts", {})
-    by_rank, default = spec.get("by_rank", {}), spec.get("default", "square")
     errs: list[str] = []
     for rank in range(1, 11):
-        name = by_rank.get(rank) or by_rank.get(str(rank)) or default
+        name = layout_for_rank(deck_cfg, rank)
         try:
             arrange(name, rank, geo, **pip)
         except (InvalidPipLayout, KeyError) as e:

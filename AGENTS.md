@@ -16,7 +16,8 @@ Rider-Waite-Smith composition.
 uv sync
 uv run arcana generate vaporwave-rws     # -> decks/artifacts/vaporwave-rws/
 uv run arcana seed vaporwave-rws         # (re)write placeholder tiles only
-uv run pytest                            # 16 regression tests
+uv run pytest                            # regression tests
+uv run ruff check                        # lint (unused imports / dead code)
 ```
 
 ### Layout
