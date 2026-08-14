@@ -24,23 +24,20 @@ Point = tuple[int, int]
 NPoint = tuple[float, float]
 LayoutFn = Callable[[int, Geometry], list[NPoint]]
 
-# Keep pip centres this far inside the art window so pips clear the frame band.
-PAD = 20
-# Contract every arrangement toward the centre (< 1) so pips cluster in the
-# middle rather than hugging the edges. Count-adaptive: few pips sit tight and
-# central (SPREAD_LOW); a full ten spreads out (SPREAD_HIGH) so it doesn't
-# overlap once the pips are enlarged. Pure scaling of the normalised coords, so
-# bilateral symmetry is preserved.
-SPREAD_LOW = 0.5      # 1-2 pips: most central
-SPREAD_HIGH = 0.75    # SPREAD_COUNT pips: most spread
-SPREAD_COUNT = 10
+# Pip tiles are 16px, scaled by an integer factor. Defaults; a deck may override
+# them (see `pip:` in deck.yaml, threaded through `arrange`).
+PIP_BASE = 16
+PIP_GAP = 6           # min pixels between pips and from the inner border
+PIP_MIN_SCALE = 1.2   # smallest pip factor (×16px); below this a layout is invalid
+PIP_MAX_SCALE = 3.0   # largest
+_FIT_FLOOR = 0.5      # scale search never probes below this
 
-
-def _spread(count: int) -> float:
-    if count <= 1:
-        return SPREAD_LOW
-    t = min(count - 1, SPREAD_COUNT - 1) / (SPREAD_COUNT - 1)
-    return SPREAD_LOW + (SPREAD_HIGH - SPREAD_LOW) * t
+# Foldable ordinaries: split into parallel/nested copies when one won't fit — a
+# horizontal line becomes two rows, a diagonal two parallel diagonals, a chevron
+# two nested chevrons, a pall stacked Ys. axis: 'h' horizontal line, 'v' vertical
+# line, 'd' ╲, 'a' ╱, 'chevron', 'pall'.
+_LINEAR = {"fess": "h", "pale": "v", "bend": "d", "bend-sinister": "a",
+           "chevron": "chevron", "pall": "pall"}
 
 _REGISTRY: dict[str, LayoutFn] = {}
 
@@ -53,20 +50,242 @@ def register(name: str) -> Callable[[LayoutFn], LayoutFn]:
 
 
 def names() -> list[str]:
-    return sorted(_REGISTRY)
+    return sorted(set(_REGISTRY) | set(_LINEAR))
+
+
+class InvalidPipLayout(ValueError):
+    """A (layout, count) that cannot place its pips at the minimum size with the
+    buffer inside the card. Message states the best achievable size and fixes."""
+
+    def __init__(self, name: str, count: int, best_scale: float, gap: int,
+                 min_scale: float, geo: Geometry):
+        best = (f"{best_scale:.1f}x ({round(PIP_BASE * best_scale)}px)"
+                if best_scale else "nothing")
+        super().__init__(
+            f"pip layout {name!r} can't place {count} pips at the minimum size in "
+            f"the {geo.art_w}x{geo.art_h} art window — not even folded or as the "
+            f"compact grid. Best fit is {best} with a {gap}px gap, but min_scale is "
+            f"{min_scale:.1f}x ({round(PIP_BASE * min_scale)}px). Fix: lower "
+            f"pip.min_scale or pip.gap in deck.yaml, or reduce the count.")
+        self.name, self.count = name, count
+
+
+def _pip_inset(geo: Geometry) -> tuple[int, int]:
+    """Inner boundary pips stay within — the same rectangle the field varies in
+    (mirrors `field.insets`), so pips never run into the frame."""
+    return geo.margin + (geo.corner - geo.margin), geo.margin
+
+
+def _normalize(pts: list[NPoint]) -> list[NPoint]:
+    m = max((max(abs(u), abs(v)) for u, v in pts), default=1.0)
+    return pts if m <= 0 else [(u / m, v / m) for u, v in pts]
+
+
+def _grid(count: int, cols: int) -> list[NPoint]:
+    """Symmetric row-major grid; a short final row is centred on the axis."""
+    cols = max(1, min(cols, count))
+    rows = math.ceil(count / cols)
+    ys = _lin(-1.0, 1.0, rows)
+    pts: list[NPoint] = []
+    placed = 0
+    for r in range(rows):
+        in_row = min(cols, count - placed)
+        if in_row == cols:
+            xs = _lin(-1.0, 1.0, cols)
+        elif in_row == 1:
+            xs = [0.0]
+        else:
+            span = (in_row - 1) / (cols - 1)
+            xs = _lin(-span, span, in_row)
+        pts += [(x, ys[r]) for x in xs]
+        placed += in_row
+        if placed >= count:
+            break
+    return pts
+
+
+def _split(count: int, fold: int) -> list[int]:
+    """Distribute `count` pips as evenly as possible across `fold` copies."""
+    return [count // fold + (1 if i < count % fold else 0) for i in range(fold)]
+
+
+def _chevronel(size: int, apex_v: float) -> list[NPoint]:
+    """One chevron (inverted V): apex on the axis at height `apex_v`, arms at
+    slope 1 stepping down-and-out at a CONSTANT pitch. The pitch is independent
+    of `size`, so parallel copies keep their spacing instead of crushing it — the
+    fix for the old nested-and-scaled fold."""
+    if size <= 1:
+        return [(0.0, apex_v)]
+    pts: list[NPoint] = []
+    if size % 2 == 1:
+        pts.append((0.0, apex_v))
+        arm = (size - 1) // 2
+    else:
+        arm = size // 2
+    for j in range(1, arm + 1):
+        d = j * 0.5
+        pts += [(d, apex_v + d), (-d, apex_v + d)]
+    return pts
+
+
+def _pallel(size: int, apex_v: float) -> list[NPoint]:
+    """One pall (Y): two upper arms rising out to the corners and a stem dropping
+    on the axis from the junction at `apex_v`, constant pitch (see `_chevronel`)."""
+    if size <= 1:
+        return [(0.0, apex_v)]
+    per = size // 3
+    stem = size - 2 * per
+    pts: list[NPoint] = []
+    for j in range(1, per + 1):
+        d = j * 0.5
+        pts += [(d, apex_v - d), (-d, apex_v - d)]     # upper arms rise out
+    for k in range(1, stem + 1):
+        pts.append((0.0, apex_v + k * 0.5))            # stem drops on the axis
+    return pts
+
+
+def _fold(axis: str, count: int, fold: int) -> list[NPoint]:
+    """`count` pips folded into `fold` PARALLEL copies of the ordinary `axis`.
+    Every fold translates a same-size copy (constant internal pitch) and offsets
+    it, so the pip+gap buffer holds within and between copies. Maximal folding
+    degenerates to a grid — the terminal that guarantees any rank fits."""
+    fold = max(1, min(fold, count))
+    if axis == "h":                                    # horizontal rows
+        return _grid(count, math.ceil(count / fold))
+    if axis == "v":                                    # vertical columns
+        return _grid(count, fold)
+    if axis in ("d", "a"):                             # parallel diagonals
+        perp = _lin(-1.0, 1.0, fold)
+        pts: list[NPoint] = []
+        for o, sz in zip(perp, _split(count, fold)):
+            for a in _lin(-1.0, 1.0, sz):
+                pts.append((a + o, a - o) if axis == "d" else (a + o, -a + o))
+        return _normalize(pts)
+    # arm-ordinaries: parallel chevronels / palls, apexes spread over the top so
+    # copies nest without overlapping. Constant pitch keeps each copy countable.
+    make = _chevronel if axis == "chevron" else _pallel
+    top = -1.0 if axis == "chevron" else -0.6
+    apex = _lin(top, top + 0.9 * (fold - 1) / fold, fold) if fold > 1 else [top]
+    pts = []
+    for sz, av in zip(_split(count, fold), apex):
+        pts += make(sz, av)
+    return _normalize(pts)
+
+
+def _candidates(name: str, count: int, geo: Geometry):
+    """Normalised centre-sets to try; fold variants for the foldable ordinaries."""
+    if name in _LINEAR:
+        for f in range(1, count + 1):
+            yield _fold(_LINEAR[name], count, f)
+    elif name in _REGISTRY:
+        yield _REGISTRY[name](count, geo)
+    else:
+        raise KeyError(f"unknown pip layout {name!r}; have {names()}")
+
+
+def _min_sep(cent: list[NPoint], rx: float, ry: float) -> float:
+    """Min pixel Chebyshev separation between centres scaled by (rx, ry)."""
+    return min((max(abs(u1 - u2) * rx, abs(v1 - v2) * ry)
+                for i, (u1, v1) in enumerate(cent) for (u2, v2) in cent[i + 1:]),
+               default=float("inf"))
+
+
+def _fit_scale(cent: list[NPoint], geo: Geometry, gap: int,
+               min_scale: float, max_scale: float) -> tuple[float, list[Point] | None]:
+    """Largest pip scale (≤ max) that places `cent` with the buffer inside the
+    inner border (spread ≤ 1). Returns (scale, centres) or (best_scale, None)."""
+    ix, iy = _pip_inset(geo)
+    x0, y0 = geo.art_w / 2, geo.art_h / 2
+
+    def place_at(scale: float) -> list[Point] | None:
+        pip = PIP_BASE * scale
+        rx, ry = x0 - ix - gap - pip / 2, y0 - iy - gap - pip / 2
+        if rx <= 0 or ry <= 0:
+            return None
+        sep = _min_sep(cent, rx, ry)
+        if sep == float("inf"):
+            s = 0.0
+        elif pip + gap > sep:
+            return None
+        else:
+            s = (pip + gap) / sep
+            if s > 1:
+                return None
+        return [(int(round(x0 + u * rx * s)), int(round(y0 + v * ry * s)))
+                for u, v in cent]
+
+    if place_at(max_scale) is not None:
+        best = max_scale
+    elif place_at(_FIT_FLOOR) is None:
+        return _FIT_FLOOR, None                        # doesn't fit even tiny
+    else:
+        lo, hi = _FIT_FLOOR, max_scale
+        for _ in range(24):
+            mid = (lo + hi) / 2
+            if place_at(mid) is not None:
+                lo = mid
+            else:
+                hi = mid
+        best = lo
+    return best, (place_at(best) if best >= min_scale else None)
+
+
+def arrange(name: str, count: int, geo: Geometry, *, gap: int = PIP_GAP,
+            min_scale: float = PIP_MIN_SCALE,
+            max_scale: float = PIP_MAX_SCALE) -> tuple[list[Point], float]:
+    """Place `count` pips for `name`: return (centres_px, scale). Pip size is
+    continuous (nearest-scaled at render), chosen as the LARGEST that keeps every
+    pip a `gap` from its neighbours and the inner border; foldable ordinaries try
+    their fold variants and the biggest-pip one wins. Raises `InvalidPipLayout`
+    if `min_scale` can't be met even so."""
+    if count < 1:
+        return [], 0.0
+    best_scale, best_pts, reach = 0.0, None, 0.0
+    for cent in _candidates(name, count, geo):
+        scale, pts = _fit_scale(cent, geo, gap, min_scale, max_scale)
+        reach = max(reach, scale)
+        if pts is not None and scale > best_scale:
+            best_scale, best_pts = scale, pts
+    if best_pts is not None:
+        return best_pts, best_scale
+    # The shape can't hold this many pips even at min_scale — fall back to the
+    # compact 2-column grid so every layout works at every rank. The grid keeps
+    # the buffer and ≥ min_scale; the shape is preserved wherever it does fit.
+    if name != "square":
+        scale, pts = _fit_scale(_square(count, geo), geo, gap, min_scale, max_scale)
+        if pts is not None:
+            return pts, scale
+    raise InvalidPipLayout(name, count, reach, gap, min_scale, geo)
 
 
 def place(name: str, count: int, geo: Geometry) -> list[Point]:
-    """Pip centres in art-window pixels for `count` pips under `name`."""
-    if name not in _REGISTRY:
-        raise KeyError(f"unknown pip layout {name!r}; have {names()}")
-    if count < 1:
-        return []
-    x0, y0 = geo.art_w / 2, geo.art_h / 2
-    s = _spread(count)
-    hx, hy = (x0 - PAD) * s, (y0 - PAD) * s
-    return [(int(round(x0 + u * hx)), int(round(y0 + v * hy)))
-            for u, v in _REGISTRY[name](count, geo)]
+    """Centres only, at the default pip config (back-compat / tests)."""
+    return arrange(name, count, geo)[0]
+
+
+def pip_config(deck_cfg: dict | None) -> dict:
+    """Pip sizing knobs from a deck's `pip:` block, with engine defaults."""
+    p = (deck_cfg or {}).get("pip", {}) or {}
+    return {"gap": int(p.get("gap", PIP_GAP)),
+            "min_scale": float(p.get("min_scale", PIP_MIN_SCALE)),
+            "max_scale": float(p.get("max_scale", PIP_MAX_SCALE))}
+
+
+def validate_pip_layouts(deck_cfg: dict, geo: Geometry) -> None:
+    """Every rank's resolved layout must place its pips at ≥ min_scale with the
+    buffer inside the card. Raises a single ValueError listing all offenders."""
+    pip = pip_config(deck_cfg)
+    spec = deck_cfg.get("pip_layouts", {})
+    by_rank, default = spec.get("by_rank", {}), spec.get("default", "square")
+    errs: list[str] = []
+    for rank in range(1, 11):
+        name = by_rank.get(rank) or by_rank.get(str(rank)) or default
+        try:
+            arrange(name, rank, geo, **pip)
+        except (InvalidPipLayout, KeyError) as e:
+            errs.append(str(e))
+    if errs:
+        raise ValueError("invalid pip_layouts:\n  " + "\n  ".join(errs))
 
 
 def _lin(a: float, b: float, n: int) -> list[float]:
@@ -101,13 +320,22 @@ def _bend(n: int, geo: Geometry) -> list[NPoint]:
 
 
 # ---------------------------------------------------------------- grids
+def _max_cols(geo: Geometry) -> int:
+    """How many minimum-size pips fit across the window — a narrow tall card like
+    tarot only takes two, so `square` becomes the classic 2-column pip stack."""
+    ix, _ = _pip_inset(geo)
+    pip = PIP_BASE * PIP_MIN_SCALE
+    usable = geo.art_w - 2 * (ix + PIP_GAP) - pip
+    return 1 if usable <= 0 else max(1, int(usable // (pip + PIP_GAP)) + 1)
+
+
 @register("square")
 def _square(n: int, geo: Geometry) -> list[NPoint]:
-    """Near-square grid; a short final row is centred so the card stays
-    symmetric for odd counts."""
+    """Grid, column count capped to what fits the window (2 for tarot). A short
+    final row is centred so the card stays symmetric for odd counts."""
     if n == 1:
         return [(0.0, 0.0)]
-    cols = math.ceil(math.sqrt(n))
+    cols = min(math.ceil(math.sqrt(n)), _max_cols(geo))
     rows = math.ceil(n / cols)
     xs = _lin(-1.0, 1.0, cols)
     ys = _lin(-1.0, 1.0, rows)

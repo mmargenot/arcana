@@ -113,6 +113,7 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
         suits = minors                       # default: show every minor suit
     ranks = range(1, 11)
 
+    pip_cfg = layout.pip_config(cfg)
     gap, W, H = 8, geo.card_w, geo.card_h
     sheet = np.full((len(suits) * (H + gap) - gap,
                      len(ranks) * (W + gap) - gap, 3), 237, np.uint8)
@@ -121,7 +122,10 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
         fname = _field_for_suit(cfg, su, field_override)
         for c, rank in enumerate(ranks):
             lname = _layout_for_rank(cfg, rank, layout_override)
-            m = build_pip_card(pal, geo, els, rank, lname, pip_key, fname)
+            try:
+                m = build_pip_card(pal, geo, els, rank, lname, pip_key, fname, pip_cfg)
+            except layout.InvalidPipLayout as e:
+                raise SystemExit(str(e))
             rgb = pal.for_suit(su).render(m)
             Image.fromarray(rgb).save(out / f"{su}_{rank:02d}.png")
             y, x = r * (H + gap), c * (W + gap)

@@ -200,6 +200,32 @@ all layouts × counts 1–10). `bend` is the deliberate exception — heraldry's
 is a diagonal ordinary, so its x/y correlation is the point and reflection
 changes the pip set.
 
+**Sizing is auto-fit, and every pip is countable.** `layout.arrange` returns
+both the centres *and* a pip scale: it picks the LARGEST scale (continuous, from
+`min_scale` to `max_scale`) that keeps every pip a `gap` from its neighbours AND
+a `gap` inside the invisible inner border. So size is a function of the
+distribution *and* the rank together — three pips `in pale` come out bigger than
+three `in chevron`, which packs tighter. The buffer is the load-bearing property:
+pips never touch or overlap, so a reader can always count the rank. The knobs
+(`gap`, `min_scale`, `max_scale`) live in `deck.yaml`'s `pip:` block ("the
+tank"); engine defaults are `gap=6`, `min_scale=1.2` (≈19px — 1× reads too small),
+`max_scale=3`.
+
+**Every layout works at every rank, guaranteed by the known pip size.** At
+`min_scale` a pip + gap is a fixed 25.2px pitch, and the usable window holds a
+4×8 grid of them — so any rank ≤ 32 fits *some* arrangement. Getting there while
+keeping a shape's character is **folding**: an ordinary that won't fit as one
+line/chevron splits into F *parallel* copies, each holding fewer (wider-spaced)
+pips, offset by pip+gap. Copies are TRANSLATED, never scaled — scaling a copy
+inward crushes its own spacing (the bug that made a double-chevron worse than a
+single). Pushed to its limit, folding degenerates into the grid, so the compact
+grid is the **terminal fold**: a genuinely-2D shape that can't hold a high count
+(a `cross` +8 pips is wider than the window allows at a countable size) resolves
+to the grid rather than erroring. `layout.arrange` only raises `InvalidPipLayout`
+when even the grid can't meet `min_scale` — e.g. an absurd `pip.min_scale` — and
+the error names the best achievable size and the fixes. `validate_pip_layouts`
+(called at `deck.load_deck`) checks the whole shipped mapping up front.
+
 ### Field designs (minor arcana)
 
 The field (card background) is a SECOND axis, independent of the pips.

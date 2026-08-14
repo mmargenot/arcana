@@ -160,25 +160,32 @@ def test_pip_card_is_suit_invariant(ctx):
     """Like the border, the pip-card index matrix is the same for every suit —
     colour is a LUT swap at render time, not a re-composition."""
     pal, geo, cfg, els = ctx
-    base = compose.build_pip_card(pal, geo, els, 7, "cross", cfg["suit_pips"]["cups"])
+    base = compose.build_pip_card(pal, geo, els, 8, "square", cfg["suit_pips"]["cups"])
     for suit in ("wands", "swords", "pentacles"):
         pal_s = pal.for_suit(suit)
-        other = compose.build_pip_card(pal_s, geo, els, 7, "cross", cfg["suit_pips"]["cups"])
+        other = compose.build_pip_card(pal_s, geo, els, 8, "square", cfg["suit_pips"]["cups"])
         assert np.array_equal(base, other)
 
 
-def test_pip_scale_auto_fit(ctx):
-    """Pip size is auto-fit from centre spacing: within [MIN, MAX] for every
-    arrangement × count, MAX for a lone pip, and never larger for a crowded ten
-    than a lone ace."""
-    from arcana import layout
-    from arcana.compose import _pip_scale, PIP_MIN_SCALE, PIP_MAX_SCALE
-    _, geo, _, _ = ctx
-    assert _pip_scale(layout.place("single", 1, geo)) == PIP_MAX_SCALE
-    for name in layout.names():
-        for n in range(1, 11):
-            assert PIP_MIN_SCALE <= _pip_scale(layout.place(name, n, geo)) <= PIP_MAX_SCALE
-    assert _pip_scale(layout.place("pile", 10, geo)) <= _pip_scale(layout.place("single", 1, geo))
+def test_pip_card_invalid_layout_raises(ctx):
+    """An impossible (layout, count) is surfaced, not rendered broken. Every
+    layout works at every rank at the normal size, so the impossible case is
+    forced with an absurd minimum the grid terminal can't meet either."""
+    from arcana.layout import InvalidPipLayout
+    pal, geo, cfg, els = ctx
+    with pytest.raises(InvalidPipLayout):
+        compose.build_pip_card(pal, geo, els, 6, "cross", cfg["suit_pips"]["cups"],
+                               pip_cfg={"min_scale": 6.0})
+
+
+def test_pip_card_unfittable_shape_grids(ctx):
+    """A 2-D ordinary that can't hold a high count in its own shape renders as
+    the compact grid terminal rather than raising — every layout works at every
+    rank."""
+    pal, geo, cfg, els = ctx
+    m = compose.build_pip_card(pal, geo, els, 10, "cross", cfg["suit_pips"]["cups"])
+    assert m.shape == (geo.card_h, geo.card_w)
+    assert int(m.max()) < len(pal.colors)
 
 
 def test_pip_card_field_design_applied(ctx):

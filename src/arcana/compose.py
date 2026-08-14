@@ -30,7 +30,7 @@ import numpy as np
 from arcana.palette import T, LINE, PAPER, DARK, MID, LIGHT, Palette
 from arcana.geometry import Geometry
 from arcana.elements import Element
-from arcana.layout import place
+from arcana.layout import arrange
 from arcana.field import build as build_field
 
 # frame profile: (start_row, end_row, local_slot), outside in.
@@ -151,47 +151,37 @@ def render_border(p: Palette, geo: Geometry, corner: Element, edge: Element,
     return out
 
 
-# Pip size (integer multiples of the 16px motif tile) is auto-fit per card: the
-# largest factor whose square doesn't overlap its neighbour. Depends jointly on
-# the arrangement and the count, since both set the centre spacing.
-PIP_BASE = 16
-PIP_MIN_SCALE = 2
-PIP_MAX_SCALE = 3
-
-
-def _pip_scale(centres: list[tuple[int, int]]) -> int:
-    """Largest integer pip factor that fits `centres` without overlap. Uses the
-    minimum Chebyshev separation — axis-aligned squares of side `s` overlap iff
-    both |dx| < s and |dy| < s — clamped to [PIP_MIN_SCALE, PIP_MAX_SCALE]. A
-    lone pip (no neighbour) gets the max."""
-    if len(centres) <= 1:
-        return PIP_MAX_SCALE
-    sep = min(max(abs(ax - bx), abs(ay - by))
-              for i, (ax, ay) in enumerate(centres)
-              for (bx, by) in centres[i + 1:])
-    return max(PIP_MIN_SCALE, min(PIP_MAX_SCALE, sep // PIP_BASE))
+def _scale_tile(tile: np.ndarray, scale: float) -> np.ndarray:
+    """Nearest-neighbour resize of an index tile by a (possibly fractional)
+    factor — preserves palette indices exactly (no blending)."""
+    h, w = tile.shape
+    sh, sw = max(1, round(h * scale)), max(1, round(w * scale))
+    if (sh, sw) == (h, w):
+        return tile
+    ys = (np.arange(sh) * h) // sh
+    xs = (np.arange(sw) * w) // sw
+    return tile[ys][:, xs]
 
 
 def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
                    count: int, layout_name: str, pip_key: str,
-                   field_design: str = "plain") -> np.ndarray:
+                   field_design: str = "plain",
+                   pip_cfg: dict | None = None) -> np.ndarray:
     """A minor-arcana pip card as one global index matrix: a heraldic field
     background (the named design, in the `field` bank), `count` pips placed by
     the named layout, then the border (with the suit's pip mounted in the
     cartouche) composited on top. Suit-invariant — colour is applied by
-    rendering with `palette.for_suit(...)`. The field varies only inside an
-    inset margin, so it never runs into the frame (an invisible border)."""
+    rendering with `palette.for_suit(...)`. Both the field and the pips vary only
+    inside an inset margin, so nothing runs into the frame. Pip size is auto-fit
+    with a buffer by `layout.arrange`, which raises if the layout can't fit."""
     card = np.zeros((geo.card_h, geo.card_w), np.uint8)
     ox, oy = geo.art_origin
 
     field = build_field(field_design, geo)
     paste(card, palette.bind(field, "field"), ox, oy)
 
-    centres = place(layout_name, count, geo)
-    k = _pip_scale(centres)
-    pip = palette.bind(els[pip_key].layers["motif"], "motif")
-    if k > 1:
-        pip = np.repeat(np.repeat(pip, k, axis=0), k, axis=1)
+    centres, scale = arrange(layout_name, count, geo, **(pip_cfg or {}))
+    pip = _scale_tile(palette.bind(els[pip_key].layers["motif"], "motif"), scale)
     for cx, cy in centres:
         paste_centered(card, pip, ox + cx, oy + cy)
 
