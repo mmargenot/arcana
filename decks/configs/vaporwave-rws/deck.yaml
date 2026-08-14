@@ -22,31 +22,6 @@ border:
     horizontal: 16          # slot width on top/bottom edges
     vertical:   20          # slot height on left/right edges
 
-# Field lattice for pip cards. Rows are centred on art height / 2, columns on
-# the mirror axis, so every arrangement is bilaterally symmetric.
-lattice:
-  rows:
-    1: [112]
-    2: [72, 152]
-    3: [72, 112, 152]
-    4: [52, 92, 132, 172]
-    5: [32, 72, 112, 152, 192]
-  cols:
-    1: [72]
-    2: [48, 96]
-    3: [36, 72, 108]
-  layouts:                  # count -> [n_cols, n_rows, extra centre pips]
-    1:  {grid: [1, 1]}
-    2:  {grid: [1, 2]}
-    3:  {grid: [1, 3]}
-    4:  {grid: [2, 2]}
-    5:  {grid: [2, 2], extra: [[72, 112]]}
-    6:  {grid: [2, 3]}
-    7:  {grid: [2, 3], extra: [[72, 112]]}
-    8:  {grid: [2, 4]}
-    9:  {grid: [2, 4], extra: [[72, 112]]}
-    10: {grid: [2, 5]}
-
 # ---------------------------------------------------------------- elements
 # role determines placement:
 #   corner    decorative motif overlaid on the beveled frame's corners,
@@ -90,3 +65,49 @@ suit_pips:
   swords: pip_swords
   pentacles: pip_pentacles
   majors: pip_rose
+
+# Pip sizing ("the tank"). gap is the buffer kept between pips and from the inner
+# border; pips scale CONTINUOUSLY between min_scale and max_scale (×16px), auto-fit
+# to the largest size that keeps every pip a gap from its neighbours and the
+# border — so a rank is always countable. Every (layout, count) is placeable at
+# these defaults (see pip_layouts below); a layout is only rejected at load if the
+# knobs make it impossible (e.g. an absurd min_scale), with an informative error.
+pip:
+  gap: 6
+  min_scale: 1.2    # smallest pip factor; 1x reads too small (≈19px at 1.2x)
+  max_scale: 3
+
+# Pip arrangement per rank (Ace..Ten). Each rank places `count` pips using the
+# named algorithm from arcana.layout; `arcana cards --layout NAME` overrides all
+# ranks at once. Arrangement follows the count, so it is keyed by rank. Every
+# arrangement is centred on the card and sized as large as the buffer allows.
+# Ordinaries (fess/pale/bend/chevron/pall) FOLD into parallel copies when a single
+# line/arm won't hold the count; grids search their column count; a genuinely-2D
+# shape that still can't fit (e.g. cross at a high rank) folds into a diamond. So
+# every rank is valid at a good size; the mapping below just picks the character.
+pip_layouts:
+  default: square
+  by_rank:
+    1:  single
+    2:  pale
+    3:  chevron
+    4:  square
+    5:  saltire
+    6:  bend
+    7:  fess
+    8:  pale
+    9:  square
+    10: square
+
+# Heraldic field design per suit (the geometric background, from arcana.field).
+# Field is the suit's identity; pip arrangement (above) is the rank's. Colours
+# come from the suit's `field` bank in palette.yaml — the design is named, never
+# authored. `arcana cards --field NAME` overrides every card to compare designs.
+field_designs:
+  default: plain
+  by_suit:
+    wands: per-bend       # fire — a dynamic diagonal
+    cups: barry           # water — horizontal bars
+    swords: paly          # air — vertical pales
+    pentacles: checky     # earth — a chequered ground
+    majors: plain

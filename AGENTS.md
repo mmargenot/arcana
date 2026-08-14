@@ -71,6 +71,8 @@ bug that is invisible at 1× and glaring in print.
   mirroring** (a mirrored cup is a cup on its side).
 - Suit motifs should be **self-symmetric** — odd pip counts straddle the mirror
   axis, so an asymmetric motif makes half the pip cards asymmetric.
+- The **field varies only inside an invisible border** — a plain-`ground` margin
+  rings every field design so the pattern never runs into the frame.
 
 ---
 
@@ -173,6 +175,100 @@ belong in a config file. Three interchangeable formats via `tileio.read_any`:
 The authoring swatches are **grey on purpose** — local space means drawing value
 structure; a pink authoring palette would have you composing for pink.
 
+### Pip layouts (minor arcana)
+
+`arcana.layout` is a registry of arrangement algorithms; each maps a pip
+**count** and the geometry to a list of pip centres in art-window space.
+`compose.build_pip_card` fills the field, places the pips via a chosen
+algorithm, and composites the border with the suit medallion — one
+suit-invariant index matrix, coloured by the suit LUT at render time (same
+property as the border).
+
+Selection is **per rank**, because arrangement follows the count, not the suit.
+`deck.yaml`'s `pip_layouts` maps each rank (Ace–Ten) to an algorithm, with a
+`default`; `arcana cards --layout NAME` overrides every rank at once to compare
+algorithms.
+
+Algorithms, grouped: lines (`pale` │, `fess` ─, `bend` ╲), grids (`square`,
+`pile` ▽), ordinaries (`chevron` ∧, `cross` +, `saltire` ✕, `diamond` ◇ outline,
+`lozenge` ◆ filled, `pall` Y), the strewn `seme`, plus `single`.
+
+**Odd/even is explicit.** Every layout except `bend` is bilaterally symmetric
+about the vertical axis: odd counts put one pip *on* the axis, even counts use
+mirror pairs, so a card is never lopsided (a regression test asserts this for
+all layouts × counts 1–10). `bend` is the deliberate exception — heraldry's bend
+is a diagonal ordinary, so its x/y correlation is the point and reflection
+changes the pip set.
+
+**Sizing is auto-fit, centred, and every pip is countable.** `layout.arrange`
+returns both the centres *and* a pip scale. Every candidate arrangement is first
+**recentred** — its bounding box is moved to the card centre — because a raw
+chevron sits entirely in the top half and would otherwise render tiny and high.
+Then the scale is the LARGEST (continuous, `min_scale`..`max_scale`) that keeps
+every pip a `gap` from its neighbours AND a `gap` inside the invisible inner
+border. Size is therefore a function of the distribution *and* the rank — three
+pips `in pale` come out bigger than three `in chevron`. The buffer is the
+load-bearing property: pips never touch or overlap, so a reader can always count
+the rank. The knobs (`gap`, `min_scale`, `max_scale`) live in `deck.yaml`'s
+`pip:` block ("the tank"); engine defaults are `gap=6`, `min_scale=1.2` (≈19px —
+1× reads too small), `max_scale=3`.
+
+**Every layout works at every rank, in character.** A shape offers a *family* of
+in-character variants and `arrange` keeps the biggest-pip one:
+
+- **Ordinaries fold.** A line (`fess`/`pale`/`bend`) or arm ordinary
+  (`chevron`/`pall`) that won't fit as a single copy splits into F *parallel*
+  copies, each holding fewer (wider-spaced) pips. Copies are TRANSLATED, never
+  scaled — scaling a copy inward crushes its own spacing, the bug that once made
+  a double-chevron worse than a single. Folding both keeps the count fitting
+  *and* keeps pips large (fewer pips per copy ⇒ more room each).
+- **Grids search their column count.** `square` tries every column count and
+  keeps the largest-pip one — in a tall tarot window that is reliably two
+  columns, but the search stays correct for any deck geometry instead of a
+  hard-coded rule (a `sqrt(n)` guess picked too many columns and shrank the
+  upper ranks badly).
+- **Everything else folds into a diamond.** A genuinely-2D shape that can't hold
+  a high count in its own form (a `cross` of 8+ is wider than the window allows
+  at a countable size) folds into a **diamond** — a rhombus *outline*, which
+  reaches the minimum size for every rank, never a rectangular grid. This is the
+  one shape-changing step, and it is deliberate ("a cross folds into a diamond").
+
+`layout.arrange` raises `InvalidPipLayout` only when even the diamond can't be
+placed — e.g. an absurd `pip.min_scale` — and the error names the best achievable
+size and the fixes. `validate_pip_layouts` (called at `deck.load_deck`) checks
+the whole shipped mapping up front.
+
+### Field designs (minor arcana)
+
+The field (card background) is a SECOND axis, independent of the pips.
+`arcana.field` is a registry of heraldic designs; each maps the geometry to a
+`field`-bank matrix for the art window. `compose.build_pip_card` fills the field
+with a chosen design instead of a flat tone, then places pips and border as
+before — still one suit-invariant matrix.
+
+A design is **geometry in local tone-space** — it only decides which cells are
+`ground` vs `device` (`LIGHT`/`MID`/`DARK` slots); the hues come from the suit's
+`field` bank at render, so `cups: barry` renders in cups' teal tones with **no
+per-design colour authoring**. Designs are chosen by **name** (a string in
+`deck.yaml`), never authored as tiles — that's the point: naming a field is
+strictly easier than drawing a pip. Two tone-roles with defaults (`ground=light`,
+`device=mid`) keep pips readable; changing a suit's field colours stays a
+`palette.yaml` edit.
+
+Selection is **per suit** (the suit's identity; the rank drives the pips).
+`deck.yaml`'s `field_designs` maps each suit to a design with a `default`;
+`arcana cards --field NAME` overrides every suit at once. Three families, after
+heraldry: **divisions** (`per-pale`, `per-fess`, `per-bend`[`-sinister`],
+`per-chevron`, `per-saltire`, `quarterly`), **ordinary bands** (`chief`, `base`,
+`pale`, `fess`, `bend`, `chevron`, `cross`, `saltire`, `pile`, `bordure`), and
+**patterns** (`barry`, `paly`, `bendy`, `chevronny`, `checky`, `lozengy`), plus
+`plain`.
+
+**Invisible border.** A design varies only in an inner rectangle; a plain
+`ground` margin rings it (inset larger on the sides, where the frame overlaps the
+art window) so the pattern never runs into the frame. A regression test asserts
+the outer ring is uniform ground for every design.
+
 ---
 
 ## Design rationale & the experiments behind it
@@ -260,20 +356,20 @@ lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
 
 ## Roadmap
 
-The **border pipeline is complete and tested**; the card pipeline is not
-started. 9 of 15 palette slots are exercised by the current build.
+The **border pipeline** and the **minor-arcana pip pipeline** are complete and
+tested: two independent axes — a heraldic **field design** (per suit,
+`arcana.field`) and a **pip arrangement** (per rank, `arcana.layout`, 13
+algorithms) — composited with the border via `compose.build_pip_card` and
+`arcana cards`. The **`figure` bank is now the only unexercised bank**. Still open:
 
-1. **`compose.build_card()`** — read the pip lattice from a deck's `deck.yaml`,
-   place pips through the `field` bank, composite the border on top. Turns the
-   40 minor arcana into a loop and lights up the `field` bank.
-2. **Bitmap font** — I/V/X plus rank words and four suit names. Use
-   `draw.fontmode = "1"` (Pillow) or hand-draw glyphs; anti-aliased text is
-   where off-palette color gets in.
-3. **Alternate pip-tiling algorithms** — the lattice is one strategy; others can
-   plug in behind the same `field`-bank composition.
-4. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
+1. **Numerals & titles** — a bitmap font for I/V/X, rank words, and suit names in
+   the numeral/title bands. Use `draw.fontmode = "1"` (Pillow) or hand-draw
+   glyphs; anti-aliased text is where off-palette color gets in.
+2. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
    generative model (see the generation plan above) and composite the result
-   into the frame; possibly generate them in-repo.
+   into the frame; possibly generate them in-repo. Lights up the `figure` bank.
+3. **Court cards** — the 16 figures (page/knight/queen/king), likely sharing the
+   major-arcana image path.
 
 ## Open questions
 

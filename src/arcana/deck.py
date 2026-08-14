@@ -14,6 +14,7 @@ from pathlib import Path
 
 from arcana.palette import Palette
 from arcana.geometry import Geometry, load_config
+from arcana.layout import validate_pip_layouts
 
 DECKS = Path("decks")
 CONFIGS = DECKS / "configs"
@@ -57,4 +58,5 @@ def load_deck(name: str, configs_root: str | Path = CONFIGS) -> Deck:
     palette = Palette.load(cdir / "palette.yaml")
     geometry = Geometry.load(cdir / "deck.yaml")
     config = load_config(cdir / "deck.yaml")
+    validate_pip_layouts(config, geometry)
     return Deck(name=name, palette=palette, geometry=geometry, config=config)
