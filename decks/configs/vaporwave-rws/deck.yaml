@@ -111,3 +111,15 @@ field_designs:
     swords: paly          # air — vertical pales
     pentacles: checky     # earth — a chequered ground
     majors: plain
+
+# Bitmap text labels (arcana.text + arcana.data). Numeral band (top) and title
+# band (bottom) carry a card's identity, inked in the `border` bank so titles
+# match the frame and vary with the palette. Engine ships default names; a deck
+# overrides them here. All keys optional — these are the defaults.
+labels:
+  enabled: true
+  numeral_style: arabic   # arabic (A,2..10) | words (ACE..TEN) — the split rank token
+  split: false            # false: one combined title in the bottom band
+                          # true:  rank/roman in the numeral band, name in the title band
+  # suit_titles: {}       # per-suit display overrides, else the suit key UPPERCASED
+  # major_titles: []      # major-name overrides by number 0..21, else canonical RWS

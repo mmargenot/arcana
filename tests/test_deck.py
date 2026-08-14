@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from arcana import compose, tileio, seed
+from arcana import compose, tileio, seed, data
+from arcana.seed import placeholder_font
 from arcana.palette import Palette
 from arcana.geometry import Geometry, load_config
 from arcana.elements import load_all, AssetError, read_tile, write_tile
@@ -196,6 +197,84 @@ def test_pip_card_field_design_applied(ctx):
     checky = compose.build_pip_card(pal, geo, els, 4, "square", cfg["suit_pips"]["cups"], "checky")
     assert plain.shape == checky.shape
     assert not np.array_equal(plain, checky)
+
+
+# --- labels -------------------------------------------------------------
+FONT = placeholder_font()
+
+
+def test_labelled_card_shape_and_indices(ctx):
+    """A labelled card is still one card-sized global-index matrix — labels are
+    composited in, not a second pass at render."""
+    pal, geo, cfg, els = ctx
+    top, bottom = data.minor_label(3, "cups")
+    m = compose.build_pip_card(pal, geo, els, 3, "chevron", cfg["suit_pips"]["cups"],
+                               font=FONT, top=top, bottom=bottom)
+    assert m.shape == (geo.card_h, geo.card_w)
+    assert int(m.max()) < len(pal.colors)
+
+
+def test_labels_off_by_default_leaves_base_untouched(ctx):
+    """No font -> no labels: the base card is byte-identical, so the existing
+    suit-invariance guarantee is preserved."""
+    pal, geo, cfg, els = ctx
+    base = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"])
+    same = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"],
+                                  font=FONT, top=None, bottom=None)
+    assert np.array_equal(base, same)
+
+
+def test_rank_numeral_is_suit_invariant_but_suit_title_is_not(ctx):
+    """The suit-invariance boundary: a rank numeral is the SAME matrix for every
+    suit (LUT swap only), but a suit-name title deliberately differs — it names
+    the suit, so it cannot be suit-invariant."""
+    pal, geo, cfg, els = ctx
+    numeral = [compose.build_pip_card(pal.for_suit(s), geo, els, 3, "chevron",
+                                      cfg["suit_pips"]["cups"], font=FONT, top="3")
+               for s in ("cups", "wands", "swords")]
+    assert all(np.array_equal(numeral[0], x) for x in numeral[1:])
+
+    titled = [compose.build_pip_card(pal.for_suit(s), geo, els, 3, "chevron",
+                                     cfg["suit_pips"][s], font=FONT,
+                                     bottom=data.minor_label(3, s)[1])
+              for s in ("cups", "wands")]
+    assert not np.array_equal(titled[0], titled[1])
+
+
+def test_frame_not_clipped_by_labels(ctx):
+    """Minor labels paint UNDER the border, so the frame rule ring stays
+    contiguous — a label bleeding into the frame is exactly this bug."""
+    pal, geo, cfg, els = ctx
+    m = compose.build_pip_card(pal, geo, els, 10, "square", cfg["suit_pips"]["pentacles"],
+                               font=FONT, top="10", bottom="TEN OF PENTACLES")
+    # the composed card's outer LINE ring is unbroken on all four sides
+    from arcana.palette import LINE
+    W, H = geo.card_w, geo.card_h
+    assert (m[0, :] == LINE).all() and (m[H - 1, :] == LINE).all()
+    assert (m[:, 0] == LINE).all() and (m[:, W - 1] == LINE).all()
+
+
+def test_build_major_card_shape_and_indices(ctx):
+    """The major builder produces a card-sized global-index matrix with its label
+    floating over the mural (figure image is a later seam)."""
+    pal, geo, cfg, els = ctx
+    top, bottom = data.major_label(0, split=True)
+    m = compose.build_major_card(pal, geo, els, FONT, top=top, bottom=bottom,
+                                 pip_key=cfg["suit_pips"]["majors"])
+    assert m.shape == (geo.card_h, geo.card_w)
+    assert int(m.max()) < len(pal.colors)
+
+
+def test_band_rects_stay_inside_the_bands(ctx):
+    """Usable label rects are derived from geo and sit within their bands, inset
+    from the card sides — never spilling into the art window or off-card."""
+    _, geo, _, _ = ctx
+    r = compose.band_rects(geo)
+    nx0, ny0, nx1, ny1 = r["numeral"]
+    tx0, ty0, tx1, ty1 = r["title"]
+    assert 0 <= ny0 < ny1 <= geo.band_numeral                       # within top band
+    assert geo.band_numeral + geo.art_h <= ty0 < ty1 <= geo.card_h  # within bottom band
+    assert nx0 == tx0 == geo.corner and nx1 == tx1 == geo.card_w - geo.corner
 
 
 # --- asset io -----------------------------------------------------------

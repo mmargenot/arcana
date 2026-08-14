@@ -5,8 +5,11 @@ config to the render pipeline and writes the results.
     arcana generate <deck> [--scale N]   seed placeholder tiles if missing,
                                          render per-suit borders
     arcana cards <deck> [--layout NAME]  render minor-arcana pip cards (ranks
-        [--suit S | --all-suits]         1-10); per-rank layouts come from the
-                                         deck, or --layout forces one everywhere
+        [--suit S | --all-suits]         1-10) with numeral/title labels;
+        [--no-labels]                    --layout forces one everywhere,
+                                         --no-labels renders bare
+    arcana majors <deck> [--no-labels]   render the 22 major arcana (labeling
+                                         half; figure image is a later item)
     arcana seed <deck>                   (re)write placeholder tiles only
 
 `--scale` is a NEAREST-neighbour zoom applied ONLY to the preview contact sheet,
@@ -22,9 +25,10 @@ from PIL import Image
 from arcana.deck import load_deck, assets_dir, render_dir, CONFIGS, ARTIFACTS
 from arcana.elements import load_all, audit
 from arcana.seed import seed_deck
-from arcana import layout, field
+from arcana import layout, field, data
+from arcana.text import load_font
 from arcana.compose import (build_border, render_border, mount, build_pip_card,
-                            check_symmetry, check_contiguous)
+                            build_major_card, check_symmetry, check_contiguous)
 
 
 def cmd_seed(name: str, configs_root: Path, artifacts_root: Path) -> Path:
@@ -86,8 +90,8 @@ def _field_for_suit(cfg: dict, suit: str, override: str | None) -> str:
 
 
 def cmd_cards(name: str, layout_override: str | None, field_override: str | None,
-              suit: str | None, all_suits: bool, scale: int, configs_root: Path,
-              artifacts_root: Path) -> Path:
+              suit: str | None, all_suits: bool, scale: int, no_labels: bool,
+              configs_root: Path, artifacts_root: Path) -> Path:
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
     if layout_override and layout_override not in layout.names():
@@ -100,6 +104,10 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
         seed_deck(assets)
         print(f"seeded placeholder tiles -> {assets}")
     els = load_all(assets, cfg["elements"])
+
+    opts = data.label_options(cfg)
+    labels_on = opts["enabled"] and not no_labels
+    font = load_font(assets / "font") if labels_on else None
 
     out = render_dir(name, artifacts_root) / "cards"
     out.mkdir(parents=True, exist_ok=True)
@@ -122,8 +130,12 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
         fname = _field_for_suit(cfg, su, field_override)
         for c, rank in enumerate(ranks):
             lname = _layout_for_rank(cfg, rank, layout_override)
+            top, bottom = (data.minor_label(rank, su, style=opts["style"],
+                                            split=opts["split"], cfg=cfg)
+                           if labels_on else (None, None))
             try:
-                m = build_pip_card(pal, geo, els, rank, lname, pip_key, fname, pip_cfg)
+                m = build_pip_card(pal, geo, els, rank, lname, pip_key, fname,
+                                   pip_cfg, font=font, top=top, bottom=bottom)
             except layout.InvalidPipLayout as e:
                 raise SystemExit(str(e))
             rgb = pal.for_suit(su).render(m)
@@ -134,7 +146,50 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
     img = Image.fromarray(sheet)
     img.resize((img.width * scale, img.height * scale), Image.NEAREST).save(out / f"cards_{tag}.png")
     print(f"wrote {out}  ({len(suits)} suit(s) x 10 ranks, "
-          f"layout: {layout_override or 'by-rank'}, field: {field_override or 'by-suit'})")
+          f"layout: {layout_override or 'by-rank'}, field: {field_override or 'by-suit'}, "
+          f"labels: {'on' if labels_on else 'off'})")
+    return out
+
+
+def cmd_majors(name: str, scale: int, no_labels: bool, configs_root: Path,
+               artifacts_root: Path) -> Path:
+    """Render the 22 major arcana (labeling half — the figure image is a later
+    roadmap item; `build_major_card` leaves the seam)."""
+    deck = load_deck(name, configs_root)
+    pal, geo, cfg = deck.palette, deck.geometry, deck.config
+
+    assets = assets_dir(name, artifacts_root)
+    if not assets.exists():
+        seed_deck(assets)
+        print(f"seeded placeholder tiles -> {assets}")
+    els = load_all(assets, cfg["elements"])
+
+    opts = data.label_options(cfg)
+    labels_on = opts["enabled"] and not no_labels
+    font = load_font(assets / "font") if labels_on else None
+    pip_key = cfg["suit_pips"].get("majors")
+    fname = _field_for_suit(cfg, "majors", None)
+
+    out = render_dir(name, artifacts_root) / "majors"
+    out.mkdir(parents=True, exist_ok=True)
+
+    cols = 6
+    rows = (len(data.MAJOR_NAMES) + cols - 1) // cols
+    gap, W, H = 8, geo.card_w, geo.card_h
+    sheet = np.full((rows * (H + gap) - gap, cols * (W + gap) - gap, 3), 237, np.uint8)
+    for number in range(len(data.MAJOR_NAMES)):
+        top, bottom = (data.major_label(number, split=opts["split"], cfg=cfg)
+                       if labels_on else (None, None))
+        m = build_major_card(pal, geo, els, font, top=top, bottom=bottom,
+                             field_design=fname, pip_key=pip_key)
+        rgb = pal.for_suit("majors").render(m)
+        Image.fromarray(rgb).save(out / f"major_{number:02d}.png")
+        r, c = divmod(number, cols)
+        y, x = r * (H + gap), c * (W + gap)
+        sheet[y:y + H, x:x + W] = rgb
+    img = Image.fromarray(sheet)
+    img.resize((img.width * scale, img.height * scale), Image.NEAREST).save(out / "majors.png")
+    print(f"wrote {out}  (22 majors, labels: {'on' if labels_on else 'off'})")
     return out
 
 
@@ -162,6 +217,15 @@ def build_parser() -> argparse.ArgumentParser:
     grp.add_argument("--all-suits", action="store_true", help="render every minor suit")
     c.add_argument("--scale", type=int, default=2,
                    help="NEAREST zoom for the preview sheet only (default: 2)")
+    c.add_argument("--no-labels", action="store_true",
+                   help="render bare cards, without numeral/title labels")
+
+    m = sub.add_parser("majors", help="render the 22 major arcana (labeling half)")
+    m.add_argument("deck")
+    m.add_argument("--scale", type=int, default=2,
+                   help="NEAREST zoom for the preview sheet only (default: 2)")
+    m.add_argument("--no-labels", action="store_true",
+                   help="render bare cards, without numeral/title labels")
 
     s = sub.add_parser("seed", help="(re)write a deck's placeholder tiles")
     s.add_argument("deck")
@@ -175,7 +239,10 @@ def main(argv: list[str] | None = None) -> int:
         cmd_generate(args.deck, args.scale, args.configs_root, args.artifacts_root)
     elif args.command == "cards":
         cmd_cards(args.deck, args.layout, args.field, args.suit, args.all_suits,
-                  args.scale, args.configs_root, args.artifacts_root)
+                  args.scale, args.no_labels, args.configs_root, args.artifacts_root)
+    elif args.command == "majors":
+        cmd_majors(args.deck, args.scale, args.no_labels,
+                   args.configs_root, args.artifacts_root)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:
