@@ -27,9 +27,9 @@ Four rules earned the hard way, each guarding a bug that is invisible at 1x:
 from __future__ import annotations
 import numpy as np
 
-from arcana.palette import T, LINE, PAPER, DARK, MID, LIGHT, Palette
+from arcana.palette import T, LINE, DARK, MID, LIGHT, Palette
 from arcana.geometry import Geometry
-from arcana.elements import Element
+from arcana.elements import Element, overlay, blit
 from arcana.layout import arrange
 from arcana.field import build as build_field
 from arcana.text import Font, render_band, CELL_H
@@ -49,14 +49,7 @@ def _require_role(el: Element, role: str) -> None:
 
 def paste(dst: np.ndarray, src: np.ndarray, x: int, y: int) -> None:
     """Clip-safe alpha paste. Index 0 in src leaves dst untouched."""
-    h, w = src.shape
-    x0, y0 = max(0, x), max(0, y)
-    x1, y1 = min(dst.shape[1], x + w), min(dst.shape[0], y + h)
-    if x0 >= x1 or y0 >= y1:
-        return
-    sub = src[y0 - y:y1 - y, x0 - x:x1 - x]
-    win = dst[y0:y1, x0:x1]
-    win[sub != T] = sub[sub != T]
+    blit(dst, src, x, y)
 
 
 def paste_centered(dst: np.ndarray, src: np.ndarray, cx: int, cy: int) -> None:
@@ -137,7 +130,7 @@ def build_border(geo: Geometry, corner: Element, edge: Element,
 
     # medallions last, flush with the card edge, never mirrored
     if medallion is not None:
-        m = next(iter(medallion.layers.values()))
+        m = medallion.matrix
         mh, mw = m.shape
         cx = x_med + geo.med_h // 2 - mw // 2
         cy = y_med + geo.med_v // 2 - mh // 2
@@ -155,8 +148,7 @@ def render_border(p: Palette, geo: Geometry, corner: Element, edge: Element,
     frame, med = build_border(geo, corner, edge, medallion, frame_bank)
     out = p.bind(frame, frame_bank)
     if medallion is not None:
-        g = p.bind(med, med_bank)
-        out[g != T] = g[g != T]
+        overlay(out, p.bind(med, med_bank))
     return out
 
 
@@ -263,7 +255,7 @@ def assemble(geo: Geometry, *, content: np.ndarray, border: np.ndarray,
     else:
         order = [label, border]             # minor: frame paints over the title
     for layer in order:
-        card[layer != T] = layer[layer != T]
+        overlay(card, layer)
     return card
 
 
@@ -308,15 +300,13 @@ def build_major_card(palette: Palette, geo: Geometry, els: dict[str, Element],
 
 def mount(pip: Element, cartouche: Element) -> Element:
     """Drop a pip into the centre of a cartouche, returning a new Element."""
-    c = next(iter(cartouche.layers.values())).copy()
-    a = next(iter(pip.layers.values()))
+    c = cartouche.matrix.copy()
+    a = pip.matrix
     oy = (c.shape[0] - a.shape[0]) // 2
     ox = (c.shape[1] - a.shape[1]) // 2
-    win = c[oy:oy + a.shape[0], ox:ox + a.shape[1]]
-    win[a != T] = a[a != T]
-    bank = next(iter(cartouche.layers))
+    overlay(c[oy:oy + a.shape[0], ox:ox + a.shape[1]], a)
     return Element(name=f"{pip.name}@{cartouche.name}", role="medallion",
-                   size=c.shape, layers={bank: c})
+                   size=c.shape, layers={cartouche.sole_bank: c})
 
 
 def build_medallion(els: dict[str, Element], pip_key: str | None, *,
@@ -329,7 +319,7 @@ def build_medallion(els: dict[str, Element], pip_key: str | None, *,
     if style == "none" or (style == "suit" and pip_key is None):
         return None
     if style == "suit":
-        layer = next(iter(mount(els[pip_key], els["cartouche"]).layers.values()))
+        layer = mount(els[pip_key], els["cartouche"]).matrix
     elif style == "lozenge":
         from arcana.seed import lozenge
         base = els["cartouche"].layers["motif"].shape[0]     # match the cartouche size

@@ -6,9 +6,9 @@ that's silently wrong.
 import numpy as np
 import pytest
 
-from arcana import text, data
+from arcana import data
 from arcana.seed import placeholder_font
-from arcana.palette import T, DARK, MAX_LOCAL
+from arcana.palette import T, MAX_LOCAL
 from arcana.text import CELL_H, CELL_W, ADVANCE, INK, line_width, render_line, fit_line, render_band
 
 FONT = placeholder_font()

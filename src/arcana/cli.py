@@ -58,15 +58,21 @@ def cmd_seed(name: str, configs_root: Path, artifacts_root: Path) -> Path:
     return dest
 
 
-def cmd_generate(name: str, scale: int, configs_root: Path, artifacts_root: Path) -> Path:
-    deck = load_deck(name, configs_root)
-    pal, geo, cfg = deck.palette, deck.geometry, deck.config
-
+def _ensure_assets(name: str, artifacts_root: Path, cfg: dict) -> tuple[Path, dict]:
+    """Seed placeholder tiles if the deck's assets dir is missing, then load
+    every element from it. Shared by `generate`, `cards`, and `majors`."""
     assets = assets_dir(name, artifacts_root)
     if not assets.exists():
         seed_deck(assets)
         print(f"seeded placeholder tiles -> {assets}")
-    els = load_all(assets, cfg["elements"])
+    return assets, load_all(assets, cfg["elements"])
+
+
+def cmd_generate(name: str, scale: int, configs_root: Path, artifacts_root: Path) -> Path:
+    deck = load_deck(name, configs_root)
+    pal, geo, cfg = deck.palette, deck.geometry, deck.config
+
+    assets, els = _ensure_assets(name, artifacts_root, cfg)
 
     out = render_dir(name, artifacts_root)
     out.mkdir(parents=True, exist_ok=True)
@@ -95,21 +101,6 @@ def cmd_generate(name: str, scale: int, configs_root: Path, artifacts_root: Path
     return out
 
 
-def _layout_for_rank(cfg: dict, rank: int, override: str | None) -> str:
-    if override:
-        return override
-    spec = cfg.get("pip_layouts", {})
-    by_rank = spec.get("by_rank", {})
-    return by_rank.get(rank) or by_rank.get(str(rank)) or spec.get("default", "square")
-
-
-def _field_for_suit(cfg: dict, suit: str, override: str | None) -> str:
-    if override:
-        return override
-    spec = cfg.get("field_designs", {})
-    return spec.get("by_suit", {}).get(suit) or spec.get("default", "plain")
-
-
 def _medallion_opts(cfg: dict, style_override: str | None = None,
                     scale_override: str | None = None) -> tuple[str, float]:
     """Medallion (style, scale) from `border.medallion`, CLI override winning —
@@ -132,11 +123,7 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
         raise SystemExit(f"unknown field {field_override!r}; have {field.names()}")
     med_style, med_scale = _medallion_opts(cfg, med_override, med_scale_override)
 
-    assets = assets_dir(name, artifacts_root)
-    if not assets.exists():
-        seed_deck(assets)
-        print(f"seeded placeholder tiles -> {assets}")
-    els = load_all(assets, cfg["elements"])
+    assets, els = _ensure_assets(name, artifacts_root, cfg)
 
     opts = data.label_options(cfg)
     labels_on = opts["enabled"] and not no_labels
@@ -160,9 +147,9 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
                      len(ranks) * (W + gap) - gap, 3), 237, np.uint8)
     for r, su in enumerate(suits):
         pip_key = cfg["suit_pips"][su]
-        fname = _field_for_suit(cfg, su, field_override)
+        fname = field.field_for_suit(cfg, su, field_override)
         for c, rank in enumerate(ranks):
-            lname = _layout_for_rank(cfg, rank, layout_override)
+            lname = layout.layout_for_rank(cfg, rank, layout_override)
             top, bottom = (data.minor_label(rank, su, style=opts["style"],
                                             split=opts["split"], cfg=cfg)
                            if labels_on else (None, None))
@@ -193,17 +180,13 @@ def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
 
-    assets = assets_dir(name, artifacts_root)
-    if not assets.exists():
-        seed_deck(assets)
-        print(f"seeded placeholder tiles -> {assets}")
-    els = load_all(assets, cfg["elements"])
+    assets, els = _ensure_assets(name, artifacts_root, cfg)
 
     opts = data.label_options(cfg)
     labels_on = opts["enabled"] and not no_labels
     font = load_font(assets / "font") if labels_on else None
     pip_key = cfg["suit_pips"].get("majors")
-    fname = _field_for_suit(cfg, "majors", None)
+    fname = field.field_for_suit(cfg, "majors", None)
     med_style, med_scale = _medallion_opts(cfg, med_override, med_scale_override)
 
     out = render_dir(name, artifacts_root) / "majors"

@@ -24,7 +24,20 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.14.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Deliberately narrow: Pyflakes (F) catches unused imports and dead locals — the
+# class of cruft this lint exists to prevent going forward. Style rules (E/W
+# pycodestyle, I import-order) are intentionally left off: this codebase uses a
+# consistent compact style (e.g. `p = Path(x); p.mkdir(...)`) that those rules
+# would churn without improving correctness.
+select = ["F"]

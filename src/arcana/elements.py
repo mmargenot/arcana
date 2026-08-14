@@ -37,6 +37,24 @@ class AssetError(Exception):
     pass
 
 
+def overlay(dst: np.ndarray, src: np.ndarray) -> None:
+    """Composite `src` onto `dst` in place: non-transparent pixels of `src`
+    (index != 0) overwrite `dst`, transparent pixels leave it untouched. Both
+    must be the same shape. The engine's one blend primitive."""
+    dst[src != T] = src[src != T]
+
+
+def blit(dst: np.ndarray, src: np.ndarray, x: int, y: int) -> None:
+    """Clip-safe positioned `overlay`: paste `src` with its top-left at (x, y),
+    trimming anything past the edges of `dst`. Index 0 is transparent."""
+    h, w = src.shape
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(dst.shape[1], x + w), min(dst.shape[0], y + h)
+    if x0 >= x1 or y0 >= y1:
+        return
+    overlay(dst[y0:y1, x0:x1], src[y0 - y:y1 - y, x0 - x:x1 - x])
+
+
 # ---------------------------------------------------------------- io
 def write_tile(art: np.ndarray, path: str | Path) -> None:
     if art.max(initial=0) > MAX_LOCAL:
@@ -84,6 +102,17 @@ class Element:
     size: tuple[int, int]           # (h, w)
     layers: dict[str, np.ndarray]   # bank name -> local matrix
 
+    @property
+    def matrix(self) -> np.ndarray:
+        """The sole (or first) layer's local matrix. Most elements are
+        single-layer, so this names the common 'give me its pixels' access."""
+        return next(iter(self.layers.values()))
+
+    @property
+    def sole_bank(self) -> str:
+        """The sole (or first) layer's bank name."""
+        return next(iter(self.layers))
+
     def bind(self, palette) -> np.ndarray:
         """Composite every layer into one global index matrix."""
         out = None
@@ -92,13 +121,13 @@ class Element:
             if out is None:
                 out = g.copy()
             else:
-                out[g != T] = g[g != T]
+                overlay(out, g)
         return out
 
     def is_opaque(self, inset: int = 4) -> bool:
         """Interior fully covered? A medallion must be, or the frame shows
         through and bisects thin motifs."""
-        a = next(iter(self.layers.values()))
+        a = self.matrix
         h, w = a.shape
         return bool((a[inset:h - inset, inset:w - inset] != T).all())
 

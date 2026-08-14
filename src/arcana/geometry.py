@@ -33,11 +33,6 @@ class Geometry:
         return (self.margin, self.band_numeral)
 
     @property
-    def mirror_x(self) -> int:
-        """Pip-lattice mirror axis, in art-window space."""
-        return self.art_w // 2
-
-    @property
     def runs(self) -> tuple[int, int]:
         """Edge tiles per half-run, horizontal and vertical."""
         h = (self.card_w - 2 * self.corner - self.med_h) // 2
