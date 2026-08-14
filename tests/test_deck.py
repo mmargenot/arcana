@@ -277,6 +277,72 @@ def test_band_rects_stay_inside_the_bands(ctx):
     assert nx0 == tx0 == geo.corner and nx1 == tx1 == geo.card_w - geo.corner
 
 
+# --- medallions ---------------------------------------------------------
+def test_default_medallion_matches_mount(ctx):
+    """The default (suit, scale 1.0) reproduces the old `mount(pip, cartouche)`
+    medallion byte-for-byte — so every pre-existing frame/suit-invariance test
+    still describes the shipped output."""
+    _, _, cfg, els = ctx
+    made = compose.build_medallion(els, cfg["suit_pips"]["cups"])
+    mounted = compose.mount(els[cfg["suit_pips"]["cups"]], els["cartouche"])
+    assert np.array_equal(made.layers["motif"], mounted.layers["motif"])
+
+
+def test_medallion_styles_and_scale(ctx):
+    """suit and lozenge build card-legal local-index medallions; none omits it;
+    a scale < 1 yields a smaller emblem (the knob that shrinks it)."""
+    from arcana.palette import MAX_LOCAL
+    _, _, cfg, els = ctx
+    pk = cfg["suit_pips"]["cups"]
+    assert compose.build_medallion(els, pk, style="none") is None
+    full = compose.build_medallion(els, pk, style="suit", scale=1.0)
+    small = compose.build_medallion(els, pk, style="suit", scale=0.5)
+    loz = compose.build_medallion(els, pk, style="lozenge", scale=0.5)
+    for m in (full, small, loz):
+        assert int(m.layers["motif"].max()) <= MAX_LOCAL
+    assert small.layers["motif"].shape[0] < full.layers["motif"].shape[0]
+
+
+def test_lozenge_is_a_solid_suit_gem(ctx):
+    """The lozenge is a solid diamond — LINE outline over a MID fill (motif bank
+    => suit colour), transparent box corners. A hollow or off-slot gem is the bug."""
+    from arcana.palette import T, LINE, MID
+    _, _, cfg, els = ctx
+    loz = compose.build_medallion(els, cfg["suit_pips"]["cups"], style="lozenge").layers["motif"]
+    assert set(np.unique(loz).tolist()) <= {T, LINE, MID}
+    S = loz.shape[0]
+    assert loz[S // 2, S // 2] == MID           # solid centre
+    assert loz[0, 0] == T                        # transparent corner
+
+
+def test_no_medallion_continues_the_border(ctx):
+    """style=none continues the edge ornament through the medallion slot, and the
+    frame stays one contiguous, symmetric ring — a broken border from the fill is
+    exactly this bug."""
+    from arcana.palette import DARK
+    _, geo, _, els = ctx
+    f, _ = compose.build_border(geo, els["corner"], els["edge"], None)
+    assert all(compose.check_contiguous(f, geo).values())
+    assert all(compose.check_symmetry(f).values())
+    # dentil ornament now reaches the top-edge centre (rows below the rule, which
+    # were bare before the fill) — proves the slot is filled, not left blank
+    cx = geo.card_w // 2
+    assert (f[8:12, cx - 6:cx + 6] == DARK).any()
+
+
+def test_lozenge_card_is_suit_invariant(ctx):
+    """A lozenge card's index matrix is identical across suits (motif binding is
+    index-level) — the suit is a LUT swap, same as everything else."""
+    pal, geo, cfg, els = ctx
+    base = compose.build_pip_card(pal, geo, els, 5, "saltire", cfg["suit_pips"]["cups"],
+                                  med_style="lozenge", med_scale=0.5)
+    for suit in ("wands", "swords", "pentacles"):
+        other = compose.build_pip_card(pal.for_suit(suit), geo, els, 5, "saltire",
+                                       cfg["suit_pips"]["cups"], med_style="lozenge",
+                                       med_scale=0.5)
+        assert np.array_equal(base, other)
+
+
 # --- asset io -----------------------------------------------------------
 def test_rgb_png_rejected(tmp_path, ctx):
     """Build the fixture from a loaded element — assets may be stored as

@@ -27,8 +27,11 @@ from arcana.elements import load_all, audit
 from arcana.seed import seed_deck
 from arcana import layout, field, data
 from arcana.text import load_font
-from arcana.compose import (build_border, render_border, mount, build_pip_card,
-                            build_major_card, check_symmetry, check_contiguous)
+from arcana.compose import (build_border, render_border, build_medallion,
+                            build_pip_card, build_major_card,
+                            check_symmetry, check_contiguous)
+
+MEDALLION_STYLES = ("suit", "lozenge", "none")
 
 
 def cmd_seed(name: str, configs_root: Path, artifacts_root: Path) -> Path:
@@ -61,9 +64,10 @@ def cmd_generate(name: str, scale: int, configs_root: Path, artifacts_root: Path
     print("broken   ", [k for k, v in check_contiguous(frame, geo).items() if not v] or "none")
 
     suits = list(cfg["suit_pips"])
+    med_style, med_scale = _medallion_opts(cfg)
     sheet = np.full((geo.card_h, (geo.card_w + 8) * len(suits), 3), 237, np.uint8)
     for i, suit in enumerate(suits):
-        med = mount(els[cfg["suit_pips"][suit]], els["cartouche"])
+        med = build_medallion(els, cfg["suit_pips"][suit], style=med_style, scale=med_scale)
         m = render_border(pal, geo, els["corner"], els["edge"], med)
         rgb = pal.for_suit(suit).render(m)
         sheet[:, i * (geo.card_w + 8):i * (geo.card_w + 8) + geo.card_w] = rgb
@@ -89,8 +93,19 @@ def _field_for_suit(cfg: dict, suit: str, override: str | None) -> str:
     return spec.get("by_suit", {}).get(suit) or spec.get("default", "plain")
 
 
+def _medallion_opts(cfg: dict, style_override: str | None = None,
+                    scale_override: float | None = None) -> tuple[str, float]:
+    """Medallion (style, scale) from `border.medallion`, CLI override winning —
+    same default-vs-override pattern as layout/field."""
+    spec = cfg.get("border", {}).get("medallion", {})
+    style = style_override or spec.get("style", "suit")
+    scale = scale_override if scale_override is not None else spec.get("scale", 1.0)
+    return style, float(scale)
+
+
 def cmd_cards(name: str, layout_override: str | None, field_override: str | None,
               suit: str | None, all_suits: bool, scale: int, no_labels: bool,
+              med_override: str | None, med_scale_override: float | None,
               configs_root: Path, artifacts_root: Path) -> Path:
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
@@ -98,6 +113,7 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
         raise SystemExit(f"unknown layout {layout_override!r}; have {layout.names()}")
     if field_override and field_override not in field.names():
         raise SystemExit(f"unknown field {field_override!r}; have {field.names()}")
+    med_style, med_scale = _medallion_opts(cfg, med_override, med_scale_override)
 
     assets = assets_dir(name, artifacts_root)
     if not assets.exists():
@@ -135,7 +151,8 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
                            if labels_on else (None, None))
             try:
                 m = build_pip_card(pal, geo, els, rank, lname, pip_key, fname,
-                                   pip_cfg, font=font, top=top, bottom=bottom)
+                                   pip_cfg, font=font, top=top, bottom=bottom,
+                                   med_style=med_style, med_scale=med_scale)
             except layout.InvalidPipLayout as e:
                 raise SystemExit(str(e))
             rgb = pal.for_suit(su).render(m)
@@ -151,7 +168,8 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
     return out
 
 
-def cmd_majors(name: str, scale: int, no_labels: bool, configs_root: Path,
+def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
+               med_scale_override: float | None, configs_root: Path,
                artifacts_root: Path) -> Path:
     """Render the 22 major arcana (labeling half — the figure image is a later
     roadmap item; `build_major_card` leaves the seam)."""
@@ -169,6 +187,7 @@ def cmd_majors(name: str, scale: int, no_labels: bool, configs_root: Path,
     font = load_font(assets / "font") if labels_on else None
     pip_key = cfg["suit_pips"].get("majors")
     fname = _field_for_suit(cfg, "majors", None)
+    med_style, med_scale = _medallion_opts(cfg, med_override, med_scale_override)
 
     out = render_dir(name, artifacts_root) / "majors"
     out.mkdir(parents=True, exist_ok=True)
@@ -181,7 +200,8 @@ def cmd_majors(name: str, scale: int, no_labels: bool, configs_root: Path,
         top, bottom = (data.major_label(number, split=opts["split"], cfg=cfg)
                        if labels_on else (None, None))
         m = build_major_card(pal, geo, els, font, top=top, bottom=bottom,
-                             field_design=fname, pip_key=pip_key)
+                             field_design=fname, pip_key=pip_key,
+                             med_style=med_style, med_scale=med_scale)
         rgb = pal.for_suit("majors").render(m)
         Image.fromarray(rgb).save(out / f"major_{number:02d}.png")
         r, c = divmod(number, cols)
@@ -219,6 +239,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="NEAREST zoom for the preview sheet only (default: 2)")
     c.add_argument("--no-labels", action="store_true",
                    help="render bare cards, without numeral/title labels")
+    c.add_argument("--medallion", choices=MEDALLION_STYLES, metavar="STYLE",
+                   help="edge medallion: suit | lozenge | none (default: from deck.yaml)")
+    c.add_argument("--medallion-scale", type=float, metavar="F",
+                   help="scale the medallion (e.g. 0.5); default from deck.yaml")
 
     m = sub.add_parser("majors", help="render the 22 major arcana (labeling half)")
     m.add_argument("deck")
@@ -226,6 +250,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="NEAREST zoom for the preview sheet only (default: 2)")
     m.add_argument("--no-labels", action="store_true",
                    help="render bare cards, without numeral/title labels")
+    m.add_argument("--medallion", choices=MEDALLION_STYLES, metavar="STYLE",
+                   help="edge medallion: suit | lozenge | none (default: from deck.yaml)")
+    m.add_argument("--medallion-scale", type=float, metavar="F",
+                   help="scale the medallion (e.g. 0.5); default from deck.yaml")
 
     s = sub.add_parser("seed", help="(re)write a deck's placeholder tiles")
     s.add_argument("deck")
@@ -239,10 +267,11 @@ def main(argv: list[str] | None = None) -> int:
         cmd_generate(args.deck, args.scale, args.configs_root, args.artifacts_root)
     elif args.command == "cards":
         cmd_cards(args.deck, args.layout, args.field, args.suit, args.all_suits,
-                  args.scale, args.no_labels, args.configs_root, args.artifacts_root)
+                  args.scale, args.no_labels, args.medallion, args.medallion_scale,
+                  args.configs_root, args.artifacts_root)
     elif args.command == "majors":
-        cmd_majors(args.deck, args.scale, args.no_labels,
-                   args.configs_root, args.artifacts_root)
+        cmd_majors(args.deck, args.scale, args.no_labels, args.medallion,
+                   args.medallion_scale, args.configs_root, args.artifacts_root)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:

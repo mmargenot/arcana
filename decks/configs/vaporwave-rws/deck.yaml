@@ -19,8 +19,10 @@ border:
   corner: 16                # corner tile is 16x16; also the band thickness
   edge:   8                 # repeating edge tile run length
   medallion:
-    horizontal: 16          # slot width on top/bottom edges
+    horizontal: 16          # slot width on top/bottom edges (geometry — divisibility)
     vertical:   20          # slot height on left/right edges
+    style: suit             # suit (pip in cartouche) | lozenge (suit-coloured diamond) | none
+    scale: 0.5              # size multiplier of the base emblem; `none` continues the border
 
 # ---------------------------------------------------------------- elements
 # role determines placement:

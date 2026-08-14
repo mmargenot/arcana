@@ -113,15 +113,23 @@ def build_border(geo: Geometry, corner: Element, edge: Element,
     paste(frame, corner_rule(C), 0, 0)                       # beveled corner
 
     # ornament overlay: dentils along each run, staircase in the corner. Only the
-    # top-left quadrant is drawn; the mirror below fills the other three.
+    # top-left quadrant is drawn; the mirror below fills the other three. With no
+    # medallion, the dentils continue through the medallion slot to the mirror
+    # axis, so the border reads unbroken (clip-safe paste trims the last tile).
     x = C
     for _ in range(nh):
         paste(frame, et, x, 0); x += E
     x_med = x
+    if medallion is None:
+        while x < W // 2:
+            paste(frame, et, x, 0); x += E
     y = C
     for _ in range(nv):
         paste(frame, evt, 0, y); y += E
     y_med = y
+    if medallion is None:
+        while y < H // 2:
+            paste(frame, evt, 0, y); y += E
     paste(frame, ct, 0, 0)
 
     frame[:, W // 2:] = frame[:, :W // 2][:, ::-1]
@@ -263,16 +271,17 @@ def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
                    count: int, layout_name: str, pip_key: str,
                    field_design: str = "plain", pip_cfg: dict | None = None,
                    *, font: Font | None = None, top: str | None = None,
-                   bottom: str | None = None) -> np.ndarray:
+                   bottom: str | None = None, med_style: str = "suit",
+                   med_scale: float = 1.0) -> np.ndarray:
     """A minor-arcana pip card as one global index matrix: the development
-    (field + pips) with the border (the suit's pip mounted in the cartouche) on
-    top, plus optional labels UNDER the border. Suit-invariant when unlabelled —
-    colour is applied by rendering with `palette.for_suit(...)`; a suit-name
-    title legitimately varies per suit. With no `font` the labels are skipped,
-    so the base card is unchanged."""
+    (field + pips) with the border (the suit medallion mounted in the cartouche)
+    on top, plus optional labels UNDER the border. Suit-invariant when unlabelled
+    — colour is applied by rendering with `palette.for_suit(...)`; a suit-name
+    title legitimately varies per suit. Defaults (`font=None`, `med_style="suit"`,
+    `med_scale=1.0`) reproduce the base card byte-for-byte."""
     content = build_development(palette, geo, els, count, layout_name, pip_key,
                                 field_design, pip_cfg)
-    med = mount(els[pip_key], els["cartouche"])
+    med = build_medallion(els, pip_key, style=med_style, scale=med_scale)
     border = render_border(palette, geo, els["corner"], els["edge"], med)
     label = (palette.bind(build_label(geo, font, top=top, bottom=bottom), "border")
              if font is not None and (top or bottom) else None)
@@ -283,12 +292,13 @@ def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
 def build_major_card(palette: Palette, geo: Geometry, els: dict[str, Element],
                      font: Font, *, top: str | None = None,
                      bottom: str | None = None, field_design: str = "plain",
-                     pip_key: str | None = None) -> np.ndarray:
+                     pip_key: str | None = None, med_style: str = "suit",
+                     med_scale: float = 1.0) -> np.ndarray:
     """A major-arcana card (labeling half): the mural + border + label floating
     ON TOP of the art, same place as a minor's title. The `figure`-bank image is
     a later roadmap item — it pastes into the mural (see `build_mural`)."""
     content = build_mural(palette, geo, els, field_design)
-    med = mount(els[pip_key], els["cartouche"]) if pip_key else None
+    med = build_medallion(els, pip_key, style=med_style, scale=med_scale)
     border = render_border(palette, geo, els["corner"], els["edge"], med)
     label = (palette.bind(build_label(geo, font, top=top, bottom=bottom), "border")
              if top or bottom else None)
@@ -307,6 +317,30 @@ def mount(pip: Element, cartouche: Element) -> Element:
     bank = next(iter(cartouche.layers))
     return Element(name=f"{pip.name}@{cartouche.name}", role="medallion",
                    size=c.shape, layers={bank: c})
+
+
+def build_medallion(els: dict[str, Element], pip_key: str | None, *,
+                    style: str = "suit", scale: float = 1.0) -> Element | None:
+    """The edge medallion as a `motif`-bound Element (suit-coloured), or None.
+    `suit` is the pip mounted in the cartouche; `lozenge` is an abstract diamond;
+    `none` omits it (and `build_border` continues the ornament through the slot).
+    `scale` resizes the emblem with the index-preserving NN resize — the knob for
+    dialing the medallion down so it no longer competes with the title."""
+    if style == "none" or (style == "suit" and pip_key is None):
+        return None
+    if style == "suit":
+        layer = next(iter(mount(els[pip_key], els["cartouche"]).layers.values()))
+    elif style == "lozenge":
+        from arcana.seed import lozenge
+        base = els["cartouche"].layers["motif"].shape[0]     # match the cartouche size
+        layer = lozenge(base)
+    else:
+        raise ValueError(f"unknown medallion style {style!r}; "
+                         "expected suit | lozenge | none")
+    if scale != 1.0:
+        layer = _scale_tile(layer, scale)
+    return Element(name=f"medallion.{style}", role="medallion",
+                   size=layer.shape, layers={"motif": layer})
 
 
 # ---------------------------------------------------------------- checks

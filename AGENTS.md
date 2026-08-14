@@ -165,6 +165,20 @@ sword blade). Opacity is the fix; the ring is what makes it pop. Sized at 24
 (tested against 20, which clipped pip corners and doubled the pentacle's ring).
 Asserted at load via `opaque: true`.
 
+**Configurable** (`compose.build_medallion`, `border.medallion` in deck.yaml,
+`--medallion`/`--medallion-scale`). Once titles carry a card's identity the full
+medallion competes with them, so it's tunable:
+- `style: suit | lozenge | none` — the pip cartouche, an abstract suit-coloured
+  diamond (`seed.lozenge`, bound to `motif`), or nothing.
+- `scale` — a size multiplier via the NN `_scale_tile`; the deck ships `0.5`.
+- `none` — `build_border` continues the edge dentils through the medallion slot
+  (horizontal fills exactly; the vertical run's non-tile-divisible remainder —
+  the reason the slot exists — leaves a ~4px centre gap, rule still continuous).
+
+The `medallion.horizontal/vertical` slot stays in `geometry` regardless — it's
+load-bearing for edge-tile divisibility. Defaults (`suit`, `scale 1.0`)
+reproduce the original medallion byte-for-byte.
+
 ### Assets: YAML holds structure, tiles hold pixels
 
 `deck.yaml` holds sizes, roles, bank bindings, the pip lattice. Pixels do not

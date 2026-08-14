@@ -55,6 +55,20 @@ def roundel(S: int = 24) -> np.ndarray:
     return c
 
 
+def lozenge(S: int = 24) -> np.ndarray:
+    """A heraldic lozenge — a solid diamond, LINE outline over a MID fill, on a
+    transparent field. An abstract medallion: bound to the `motif` bank it reads
+    as a suit-coloured gem. The body is solid so the frame rule can't bisect it;
+    the box corners stay transparent (the rule runs on, uninterrupted, behind)."""
+    c = np.zeros((S, S), np.uint8)
+    yy, xx = np.mgrid[0:S, 0:S]
+    half = (S - 1) / 2
+    d = (np.abs(xx - half) + np.abs(yy - half)) / (S / 2)   # L1 radius: 0 centre, 1 at edge
+    c[d <= 1.0] = LINE
+    c[d <= 1.0 - 1.5 / (S / 2)] = MID
+    return c
+
+
 # ---------------------------------------------------------------- pips (ASCII)
 # Hand-authored, kept in code. Glyphs: . transparent  @ line  ' paper
 # % dark  + mid  - light. Each is 16x16 and self-symmetric about x=7.5 so odd
