@@ -107,22 +107,30 @@ def build_border(geo: Geometry, corner: Element, edge: Element,
 
     # ornament overlay: dentils along each run, staircase in the corner. Only the
     # top-left quadrant is drawn; the mirror below fills the other three. With no
-    # medallion, the dentils continue through the medallion slot to the mirror
-    # axis, so the border reads unbroken (clip-safe paste trims the last tile).
+    # medallion, the dentils continue through the medallion slot: whole tiles up
+    # to the mirror axis, then a final tab ANCHORED flush to the axis. The
+    # vertical slot's half-height is not tile-divisible (that remainder is why the
+    # slot exists), so tiling outward alone would truncate the last tab against
+    # the mirror and leave a ~4px hole; the anchored tab lands its inter-tab gap
+    # on the axis instead, so the tab meets its mirror with the normal seam.
     x = C
     for _ in range(nh):
         paste(frame, et, x, 0); x += E
     x_med = x
     if medallion is None:
-        while x < W // 2:
+        while x + E <= W // 2:
             paste(frame, et, x, 0); x += E
+        if x < W // 2:                       # sub-tile remainder: flush the axis
+            paste(frame, et, W // 2 - E, 0)
     y = C
     for _ in range(nv):
         paste(frame, evt, 0, y); y += E
     y_med = y
     if medallion is None:
-        while y < H // 2:
+        while y + E <= H // 2:
             paste(frame, evt, 0, y); y += E
+        if y < H // 2:
+            paste(frame, evt, 0, H // 2 - E)
     paste(frame, ct, 0, 0)
 
     frame[:, W // 2:] = frame[:, :W // 2][:, ::-1]

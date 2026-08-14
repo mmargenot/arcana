@@ -330,6 +330,37 @@ def test_no_medallion_continues_the_border(ctx):
     assert (f[8:12, cx - 6:cx + 6] == DARK).any()
 
 
+def test_no_medallion_vertical_slot_has_no_gap(ctx):
+    """The vertical slot's half-height is not tile-divisible (the remainder is why
+    the slot exists), so tiling the dentils outward alone truncated the last tab
+    and left a ~4px hole at the left/right edge midpoints. The anchored final tab
+    must close it: no dentil column may have a longer transparent run straddling
+    the vertical centre than it does in the clean rhythm near the corner."""
+    from arcana.palette import T
+    _, geo, _, els = ctx
+    f, _ = compose.build_border(geo, els["corner"], els["edge"], None)
+    C, H = geo.corner, geo.card_h
+
+    def max_run(mask):
+        best = cur = 0
+        for v in mask:
+            cur = cur + 1 if v else 0
+            best = max(best, cur)
+        return best
+
+    mid = H // 2
+    # dentil columns carry both marks AND gaps along the run; the structural rule
+    # columns are solid and the bare columns never mark, so this picks the ornament.
+    dentil_cols = [c for c in range(C)
+                   if (f[C:H - C, c] != T).any() and (f[C:H - C, c] == T).any()]
+    assert dentil_cols, "no dentil ornament found on the vertical edge"
+    for c in dentil_cols:
+        centre_gap = max_run(f[mid - 16:mid + 16, c] == T)   # straddles the axis
+        rhythm_gap = max_run(f[C:C + 32, c] == T)            # clean run near corner
+        assert centre_gap <= rhythm_gap, (
+            f"column {c}: centre gap {centre_gap} exceeds rhythm gap {rhythm_gap}")
+
+
 def test_medallion_size_keywords_resolve(ctx):
     """Medallion scale accepts named sizes (`small`, `tiny`, …) or a number, and
     the deck ships the `small` keyword — a typo'd keyword is rejected loudly."""
