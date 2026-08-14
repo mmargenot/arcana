@@ -206,8 +206,14 @@ def _candidates(name: str, count: int, geo: Geometry):
     fallback — a shape that can't hold the count in its own form is handled by
     `_terminal` (a diamond) in `arrange`."""
     if name in _LINEAR:
+        # A fold only reads as the ordinary if its LARGEST copy still holds the
+        # shape: an arm-ordinary (chevron/pall) needs ≥3 pips (apex + two arms),
+        # a line ≥2. Without this, "biggest pip wins" over-folds a chevron into a
+        # column of single dots — a vertical line, not a ∧.
+        floor = min(3 if name in ("chevron", "pall") else 2, count)
         for f in range(1, count + 1):
-            yield _recenter(_fold(_LINEAR[name], count, f))
+            if max(_split(count, f)) >= floor:
+                yield _recenter(_fold(_LINEAR[name], count, f))
     elif name in _GRID:
         for cols in range(1, count + 1):
             yield _recenter(_grid(count, cols))
