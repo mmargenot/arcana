@@ -167,6 +167,20 @@ def test_pip_card_is_suit_invariant(ctx):
         assert np.array_equal(base, other)
 
 
+def test_pip_scale_auto_fit(ctx):
+    """Pip size is auto-fit from centre spacing: within [MIN, MAX] for every
+    arrangement × count, MAX for a lone pip, and never larger for a crowded ten
+    than a lone ace."""
+    from arcana import layout
+    from arcana.compose import _pip_scale, PIP_MIN_SCALE, PIP_MAX_SCALE
+    _, geo, _, _ = ctx
+    assert _pip_scale(layout.place("single", 1, geo)) == PIP_MAX_SCALE
+    for name in layout.names():
+        for n in range(1, 11):
+            assert PIP_MIN_SCALE <= _pip_scale(layout.place(name, n, geo)) <= PIP_MAX_SCALE
+    assert _pip_scale(layout.place("pile", 10, geo)) <= _pip_scale(layout.place("single", 1, geo))
+
+
 def test_pip_card_field_design_applied(ctx):
     """The field design is an independent axis: a non-plain field changes the
     background matrix without touching the pips or frame."""

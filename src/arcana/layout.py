@@ -26,6 +26,21 @@ LayoutFn = Callable[[int, Geometry], list[NPoint]]
 
 # Keep pip centres this far inside the art window so pips clear the frame band.
 PAD = 20
+# Contract every arrangement toward the centre (< 1) so pips cluster in the
+# middle rather than hugging the edges. Count-adaptive: few pips sit tight and
+# central (SPREAD_LOW); a full ten spreads out (SPREAD_HIGH) so it doesn't
+# overlap once the pips are enlarged. Pure scaling of the normalised coords, so
+# bilateral symmetry is preserved.
+SPREAD_LOW = 0.5      # 1-2 pips: most central
+SPREAD_HIGH = 0.75    # SPREAD_COUNT pips: most spread
+SPREAD_COUNT = 10
+
+
+def _spread(count: int) -> float:
+    if count <= 1:
+        return SPREAD_LOW
+    t = min(count - 1, SPREAD_COUNT - 1) / (SPREAD_COUNT - 1)
+    return SPREAD_LOW + (SPREAD_HIGH - SPREAD_LOW) * t
 
 _REGISTRY: dict[str, LayoutFn] = {}
 
@@ -48,7 +63,8 @@ def place(name: str, count: int, geo: Geometry) -> list[Point]:
     if count < 1:
         return []
     x0, y0 = geo.art_w / 2, geo.art_h / 2
-    hx, hy = x0 - PAD, y0 - PAD
+    s = _spread(count)
+    hx, hy = (x0 - PAD) * s, (y0 - PAD) * s
     return [(int(round(x0 + u * hx)), int(round(y0 + v * hy)))
             for u, v in _REGISTRY[name](count, geo)]
 

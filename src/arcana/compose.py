@@ -151,6 +151,27 @@ def render_border(p: Palette, geo: Geometry, corner: Element, edge: Element,
     return out
 
 
+# Pip size (integer multiples of the 16px motif tile) is auto-fit per card: the
+# largest factor whose square doesn't overlap its neighbour. Depends jointly on
+# the arrangement and the count, since both set the centre spacing.
+PIP_BASE = 16
+PIP_MIN_SCALE = 2
+PIP_MAX_SCALE = 3
+
+
+def _pip_scale(centres: list[tuple[int, int]]) -> int:
+    """Largest integer pip factor that fits `centres` without overlap. Uses the
+    minimum Chebyshev separation — axis-aligned squares of side `s` overlap iff
+    both |dx| < s and |dy| < s — clamped to [PIP_MIN_SCALE, PIP_MAX_SCALE]. A
+    lone pip (no neighbour) gets the max."""
+    if len(centres) <= 1:
+        return PIP_MAX_SCALE
+    sep = min(max(abs(ax - bx), abs(ay - by))
+              for i, (ax, ay) in enumerate(centres)
+              for (bx, by) in centres[i + 1:])
+    return max(PIP_MIN_SCALE, min(PIP_MAX_SCALE, sep // PIP_BASE))
+
+
 def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
                    count: int, layout_name: str, pip_key: str,
                    field_design: str = "plain") -> np.ndarray:
@@ -166,9 +187,13 @@ def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
     field = build_field(field_design, geo)
     paste(card, palette.bind(field, "field"), ox, oy)
 
-    pips = palette.bind(els[pip_key].layers["motif"], "motif")
-    for cx, cy in place(layout_name, count, geo):
-        paste_centered(card, pips, ox + cx, oy + cy)
+    centres = place(layout_name, count, geo)
+    k = _pip_scale(centres)
+    pip = palette.bind(els[pip_key].layers["motif"], "motif")
+    if k > 1:
+        pip = np.repeat(np.repeat(pip, k, axis=0), k, axis=1)
+    for cx, cy in centres:
+        paste_centered(card, pip, ox + cx, oy + cy)
 
     med = mount(els[pip_key], els["cartouche"])
     border = render_border(palette, geo, els["corner"], els["edge"], med)
