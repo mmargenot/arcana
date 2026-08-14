@@ -31,6 +31,7 @@ from arcana.palette import T, LINE, PAPER, DARK, MID, LIGHT, Palette
 from arcana.geometry import Geometry
 from arcana.elements import Element
 from arcana.layout import place
+from arcana.field import build as build_field
 
 # frame profile: (start_row, end_row, local_slot), outside in.
 # Shared by the corner, the edge and the backing strip so rules line up by
@@ -151,15 +152,18 @@ def render_border(p: Palette, geo: Geometry, corner: Element, edge: Element,
 
 
 def build_pip_card(palette: Palette, geo: Geometry, els: dict[str, Element],
-                   count: int, layout_name: str, pip_key: str) -> np.ndarray:
-    """A minor-arcana pip card as one global index matrix: field background,
-    `count` pips placed by the named layout, then the border (with the suit's
-    pip mounted in the cartouche) composited on top. Suit-invariant — colour is
-    applied by rendering with `palette.for_suit(...)`."""
+                   count: int, layout_name: str, pip_key: str,
+                   field_design: str = "plain") -> np.ndarray:
+    """A minor-arcana pip card as one global index matrix: a heraldic field
+    background (the named design, in the `field` bank), `count` pips placed by
+    the named layout, then the border (with the suit's pip mounted in the
+    cartouche) composited on top. Suit-invariant — colour is applied by
+    rendering with `palette.for_suit(...)`. The field varies only inside an
+    inset margin, so it never runs into the frame (an invisible border)."""
     card = np.zeros((geo.card_h, geo.card_w), np.uint8)
     ox, oy = geo.art_origin
 
-    field = np.full((geo.art_h, geo.art_w), LIGHT, np.uint8)
+    field = build_field(field_design, geo)
     paste(card, palette.bind(field, "field"), ox, oy)
 
     pips = palette.bind(els[pip_key].layers["motif"], "motif")

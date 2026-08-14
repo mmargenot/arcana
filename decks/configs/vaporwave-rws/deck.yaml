@@ -83,3 +83,16 @@ pip_layouts:
     8:  bend
     9:  lozenge
     10: pile
+
+# Heraldic field design per suit (the geometric background, from arcana.field).
+# Field is the suit's identity; pip arrangement (above) is the rank's. Colours
+# come from the suit's `field` bank in palette.yaml — the design is named, never
+# authored. `arcana cards --field NAME` overrides every card to compare designs.
+field_designs:
+  default: plain
+  by_suit:
+    wands: per-bend       # fire — a dynamic diagonal
+    cups: barry           # water — horizontal bars
+    swords: paly          # air — vertical pales
+    pentacles: checky     # earth — a chequered ground
+    majors: plain

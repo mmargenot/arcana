@@ -167,6 +167,16 @@ def test_pip_card_is_suit_invariant(ctx):
         assert np.array_equal(base, other)
 
 
+def test_pip_card_field_design_applied(ctx):
+    """The field design is an independent axis: a non-plain field changes the
+    background matrix without touching the pips or frame."""
+    pal, geo, cfg, els = ctx
+    plain = compose.build_pip_card(pal, geo, els, 4, "square", cfg["suit_pips"]["cups"], "plain")
+    checky = compose.build_pip_card(pal, geo, els, 4, "square", cfg["suit_pips"]["cups"], "checky")
+    assert plain.shape == checky.shape
+    assert not np.array_equal(plain, checky)
+
+
 # --- asset io -----------------------------------------------------------
 def test_rgb_png_rejected(tmp_path, ctx):
     """Build the fixture from a loaded element — assets may be stored as

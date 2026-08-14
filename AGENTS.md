@@ -71,6 +71,8 @@ bug that is invisible at 1× and glaring in print.
   mirroring** (a mirrored cup is a cup on its side).
 - Suit motifs should be **self-symmetric** — odd pip counts straddle the mirror
   axis, so an asymmetric motif makes half the pip cards asymmetric.
+- The **field varies only inside an invisible border** — a plain-`ground` margin
+  rings every field design so the pattern never runs into the frame.
 
 ---
 
@@ -188,8 +190,8 @@ Selection is **per rank**, because arrangement follows the count, not the suit.
 algorithms.
 
 Algorithms, grouped: lines (`pale` │, `fess` ─, `bend` ╲), grids (`square`,
-`pile` ▽), and ordinaries (`chevron` ∧, `cross` +, `saltire` ✕, `diamond` ◇
-outline, `lozenge` ◆ filled), plus `single`.
+`pile` ▽), ordinaries (`chevron` ∧, `cross` +, `saltire` ✕, `diamond` ◇ outline,
+`lozenge` ◆ filled, `pall` Y), the strewn `seme`, plus `single`.
 
 **Odd/even is explicit.** Every layout except `bend` is bilaterally symmetric
 about the vertical axis: odd counts put one pip *on* the axis, even counts use
@@ -197,6 +199,37 @@ mirror pairs, so a card is never lopsided (a regression test asserts this for
 all layouts × counts 1–10). `bend` is the deliberate exception — heraldry's bend
 is a diagonal ordinary, so its x/y correlation is the point and reflection
 changes the pip set.
+
+### Field designs (minor arcana)
+
+The field (card background) is a SECOND axis, independent of the pips.
+`arcana.field` is a registry of heraldic designs; each maps the geometry to a
+`field`-bank matrix for the art window. `compose.build_pip_card` fills the field
+with a chosen design instead of a flat tone, then places pips and border as
+before — still one suit-invariant matrix.
+
+A design is **geometry in local tone-space** — it only decides which cells are
+`ground` vs `device` (`LIGHT`/`MID`/`DARK` slots); the hues come from the suit's
+`field` bank at render, so `cups: barry` renders in cups' teal tones with **no
+per-design colour authoring**. Designs are chosen by **name** (a string in
+`deck.yaml`), never authored as tiles — that's the point: naming a field is
+strictly easier than drawing a pip. Two tone-roles with defaults (`ground=light`,
+`device=mid`) keep pips readable; changing a suit's field colours stays a
+`palette.yaml` edit.
+
+Selection is **per suit** (the suit's identity; the rank drives the pips).
+`deck.yaml`'s `field_designs` maps each suit to a design with a `default`;
+`arcana cards --field NAME` overrides every suit at once. Three families, after
+heraldry: **divisions** (`per-pale`, `per-fess`, `per-bend`[`-sinister`],
+`per-chevron`, `per-saltire`, `quarterly`), **ordinary bands** (`chief`, `base`,
+`pale`, `fess`, `bend`, `chevron`, `cross`, `saltire`, `pile`, `bordure`), and
+**patterns** (`barry`, `paly`, `bendy`, `chevronny`, `checky`, `lozengy`), plus
+`plain`.
+
+**Invisible border.** A design varies only in an inner rectangle; a plain
+`ground` margin rings it (inset larger on the sides, where the frame overlaps the
+art window) so the pattern never runs into the frame. A regression test asserts
+the outer ring is uniform ground for every design.
 
 ---
 
@@ -286,9 +319,10 @@ lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
 ## Roadmap
 
 The **border pipeline** and the **minor-arcana pip pipeline** are complete and
-tested: field background + pip placement (11 arrangement algorithms) + border,
-via `compose.build_pip_card` and `arcana cards`. All 15 palette slots except the
-`figure` bank are now exercised. Still open:
+tested: two independent axes — a heraldic **field design** (per suit,
+`arcana.field`) and a **pip arrangement** (per rank, `arcana.layout`, 13
+algorithms) — composited with the border via `compose.build_pip_card` and
+`arcana cards`. The **`figure` bank is now the only unexercised bank**. Still open:
 
 1. **Numerals & titles** — a bitmap font for I/V/X, rank words, and suit names in
    the numeral/title bands. Use `draw.fontmode = "1"` (Pillow) or hand-draw

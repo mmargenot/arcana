@@ -249,6 +249,53 @@ def _lozenge(n: int, geo: Geometry) -> list[NPoint]:
     return pts
 
 
+@register("pall")
+def _pall(n: int, geo: Geometry) -> list[NPoint]:
+    """Y arrangement (heraldic pall): two mirrored upper arms rising to the top
+    corners and one lower stem on the axis. Count is split across the three
+    arms; symmetric about the vertical axis."""
+    if n == 1:
+        return [(0.0, 0.0)]
+    per_arm = n // 3
+    stem = n - 2 * per_arm
+    pts: list[NPoint] = []
+    for j in range(1, per_arm + 1):
+        t = j / per_arm
+        pts += [(t, -t), (-t, -t)]                     # upper-right, upper-left
+    for k in range(1, stem + 1):
+        pts.append((0.0, k / stem))                    # lower stem, on the axis
+    return pts
+
+
+@register("seme")
+def _seme(n: int, geo: Geometry) -> list[NPoint]:
+    """Strewn: pips spread across the window in centred staggered rows (widths
+    differ by a pip so rows nestle). Bilaterally symmetric and deterministic —
+    no RNG, so it renders the same every time."""
+    if n == 1:
+        return [(0.0, 0.0)]
+    rows = min(n, 3 if n <= 6 else 4)
+    ys = _lin(-0.85, 0.85, rows)
+    widths: list[int] = []
+    remaining = n
+    for i in range(rows):
+        w = round(remaining / (rows - i))
+        widths.append(w)
+        remaining -= w
+    widest = max(widths)
+    pts: list[NPoint] = []
+    for i, w in enumerate(widths):
+        if w <= 0:
+            continue
+        if w == 1:
+            xs = [0.0]
+        else:
+            span = 0.85 * (w - 1) / (widest - 1) if widest > 1 else 0.0
+            xs = _lin(-span, span, w)
+        pts += [(x, ys[i]) for x in xs]
+    return pts
+
+
 def _diamond_ring(j: int, jmax: int, count: int) -> list[NPoint]:
     """`count` symmetric points on diamond ring `j` (radius j/jmax)."""
     rj = j / jmax

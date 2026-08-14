@@ -22,7 +22,7 @@ from PIL import Image
 from arcana.deck import load_deck, assets_dir, render_dir, CONFIGS, ARTIFACTS
 from arcana.elements import load_all, audit
 from arcana.seed import seed_deck
-from arcana import layout
+from arcana import layout, field
 from arcana.compose import (build_border, render_border, mount, build_pip_card,
                             check_symmetry, check_contiguous)
 
@@ -78,13 +78,22 @@ def _layout_for_rank(cfg: dict, rank: int, override: str | None) -> str:
     return by_rank.get(rank) or by_rank.get(str(rank)) or spec.get("default", "square")
 
 
-def cmd_cards(name: str, layout_override: str | None, suit: str | None,
-              all_suits: bool, scale: int, configs_root: Path,
+def _field_for_suit(cfg: dict, suit: str, override: str | None) -> str:
+    if override:
+        return override
+    spec = cfg.get("field_designs", {})
+    return spec.get("by_suit", {}).get(suit) or spec.get("default", "plain")
+
+
+def cmd_cards(name: str, layout_override: str | None, field_override: str | None,
+              suit: str | None, all_suits: bool, scale: int, configs_root: Path,
               artifacts_root: Path) -> Path:
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
     if layout_override and layout_override not in layout.names():
         raise SystemExit(f"unknown layout {layout_override!r}; have {layout.names()}")
+    if field_override and field_override not in field.names():
+        raise SystemExit(f"unknown field {field_override!r}; have {field.names()}")
 
     assets = assets_dir(name, artifacts_root)
     if not assets.exists():
@@ -109,17 +118,19 @@ def cmd_cards(name: str, layout_override: str | None, suit: str | None,
                      len(ranks) * (W + gap) - gap, 3), 237, np.uint8)
     for r, su in enumerate(suits):
         pip_key = cfg["suit_pips"][su]
+        fname = _field_for_suit(cfg, su, field_override)
         for c, rank in enumerate(ranks):
             lname = _layout_for_rank(cfg, rank, layout_override)
-            m = build_pip_card(pal, geo, els, rank, lname, pip_key)
+            m = build_pip_card(pal, geo, els, rank, lname, pip_key, fname)
             rgb = pal.for_suit(su).render(m)
             Image.fromarray(rgb).save(out / f"{su}_{rank:02d}.png")
             y, x = r * (H + gap), c * (W + gap)
             sheet[y:y + H, x:x + W] = rgb
-    tag = layout_override or "by-rank"
+    tag = "-".join(t for t in (layout_override, field_override) if t) or "by-rank"
     img = Image.fromarray(sheet)
     img.resize((img.width * scale, img.height * scale), Image.NEAREST).save(out / f"cards_{tag}.png")
-    print(f"wrote {out}  ({len(suits)} suit(s) x 10 ranks, layout: {tag})")
+    print(f"wrote {out}  ({len(suits)} suit(s) x 10 ranks, "
+          f"layout: {layout_override or 'by-rank'}, field: {field_override or 'by-suit'})")
     return out
 
 
@@ -138,8 +149,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("cards", help="render minor-arcana pip cards (ranks 1-10)")
     c.add_argument("deck")
-    c.add_argument("--layout", choices=layout.names(),
-                   help="force one arrangement for every rank (default: per-rank from deck.yaml)")
+    c.add_argument("--layout", choices=layout.names(), metavar="NAME",
+                   help="force one pip arrangement for every rank (default: per-rank from deck.yaml)")
+    c.add_argument("--field", choices=field.names(), metavar="NAME",
+                   help="force one field design for every suit (default: per-suit from deck.yaml)")
     grp = c.add_mutually_exclusive_group()
     grp.add_argument("--suit", help="render a single suit (default: all minor suits)")
     grp.add_argument("--all-suits", action="store_true", help="render every minor suit")
@@ -157,8 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "generate":
         cmd_generate(args.deck, args.scale, args.configs_root, args.artifacts_root)
     elif args.command == "cards":
-        cmd_cards(args.deck, args.layout, args.suit, args.all_suits, args.scale,
-                  args.configs_root, args.artifacts_root)
+        cmd_cards(args.deck, args.layout, args.field, args.suit, args.all_suits,
+                  args.scale, args.configs_root, args.artifacts_root)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:

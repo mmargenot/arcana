@@ -39,11 +39,23 @@ Everything is written under `decks/artifacts/<deck>/` (git-ignored).
 
 - `arcana generate <deck>` seeds placeholder tiles (if missing) and renders the
   per-suit borders.
-- `arcana cards <deck>` renders the minor arcana. Each rank's pip arrangement
-  comes from `pip_layouts` in the deck's `deck.yaml`; `--layout <name>` forces
-  one algorithm across all ranks to compare them, and `--suit <s>` /
-  `--all-suits` pick which suits. Layouts: `single`, `pale`, `fess`, `bend`,
-  `square`, `pile`, `chevron`, `cross`, `saltire`, `diamond`, `lozenge`.
+- `arcana cards <deck>` renders the minor arcana on two independent axes:
+  - **pip arrangement** per rank (`pip_layouts` in `deck.yaml`); `--layout <name>`
+    forces one across all ranks. Layouts: `single`, `pale`, `fess`, `bend`,
+    `square`, `pile`, `chevron`, `cross`, `saltire`, `diamond`, `lozenge`,
+    `pall`, `seme`.
+  - **field design** per suit (`field_designs` in `deck.yaml`); `--field <name>`
+    forces one across all suits. Designs: divisions (`per-pale`, `per-fess`,
+    `per-bend`, `per-bend-sinister`, `per-chevron`, `per-saltire`, `quarterly`),
+    ordinary bands (`chief`, `base`, `pale`, `fess`, `bend`, `chevron`, `cross`,
+    `saltire`, `pile`, `bordure`), patterns (`barry`, `paly`, `bendy`,
+    `chevronny`, `checky`, `lozengy`), and `plain`.
+
+  Both are chosen by **name** (algorithms, not authored tiles); field colours come
+  from the suit's `field` bank in `palette.yaml`. `--suit <s>` / `--all-suits`
+  pick which suits. See `docs/examples/` — [field-gallery](docs/examples/field-gallery.png)
+  (one card under every field design) and [minor-arcana](docs/examples/minor-arcana.png)
+  (the per-suit defaults across ranks 1–10).
 - `arcana seed <deck>` just (re)writes the placeholder tiles.
 - `--scale N` is a NEAREST zoom applied only to the preview contact sheet so the
   tiny pixel-art cards are legible; individual PNGs are always native resolution.
