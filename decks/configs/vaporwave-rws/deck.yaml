@@ -79,11 +79,12 @@ pip:
 
 # Pip arrangement per rank (Ace..Ten). Each rank places `count` pips using the
 # named algorithm from arcana.layout; `arcana cards --layout NAME` overrides all
-# ranks at once. Arrangement follows the count, so it is keyed by rank. Ordinaries
-# (fess/pale/bend/chevron/pall) FOLD into parallel copies when a single line/arm
-# won't hold the count at the minimum size; a genuinely-2D shape that still can't
-# fit (e.g. cross at a high rank) resolves to the compact grid — its terminal
-# fold. So every rank is valid; the mapping below just picks the character.
+# ranks at once. Arrangement follows the count, so it is keyed by rank. Every
+# arrangement is centred on the card and sized as large as the buffer allows.
+# Ordinaries (fess/pale/bend/chevron/pall) FOLD into parallel copies when a single
+# line/arm won't hold the count; grids search their column count; a genuinely-2D
+# shape that still can't fit (e.g. cross at a high rank) folds into a diamond. So
+# every rank is valid at a good size; the mapping below just picks the character.
 pip_layouts:
   default: square
   by_rank:

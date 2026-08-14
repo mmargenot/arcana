@@ -39,6 +39,10 @@ _FIT_FLOOR = 0.5      # scale search never probes below this
 _LINEAR = {"fess": "h", "pale": "v", "bend": "d", "bend-sinister": "a",
            "chevron": "chevron", "pall": "pall"}
 
+# Grid layouts whose column count is searched for the biggest pips (not authored
+# as a generator, since the arrangement is the search — see `_candidates`).
+_GRID = {"square"}
+
 _REGISTRY: dict[str, LayoutFn] = {}
 
 
@@ -50,7 +54,7 @@ def register(name: str) -> Callable[[LayoutFn], LayoutFn]:
 
 
 def names() -> list[str]:
-    return sorted(set(_REGISTRY) | set(_LINEAR))
+    return sorted(set(_REGISTRY) | set(_LINEAR) | _GRID)
 
 
 class InvalidPipLayout(ValueError):
@@ -63,8 +67,8 @@ class InvalidPipLayout(ValueError):
                 if best_scale else "nothing")
         super().__init__(
             f"pip layout {name!r} can't place {count} pips at the minimum size in "
-            f"the {geo.art_w}x{geo.art_h} art window — not even folded or as the "
-            f"compact grid. Best fit is {best} with a {gap}px gap, but min_scale is "
+            f"the {geo.art_w}x{geo.art_h} art window — not even folded or as a "
+            f"diamond. Best fit is {best} with a {gap}px gap, but min_scale is "
             f"{min_scale:.1f}x ({round(PIP_BASE * min_scale)}px). Fix: lower "
             f"pip.min_scale or pip.gap in deck.yaml, or reduce the count.")
         self.name, self.count = name, count
@@ -79,6 +83,19 @@ def _pip_inset(geo: Geometry) -> tuple[int, int]:
 def _normalize(pts: list[NPoint]) -> list[NPoint]:
     m = max((max(abs(u), abs(v)) for u, v in pts), default=1.0)
     return pts if m <= 0 else [(u / m, v / m) for u, v in pts]
+
+
+def _recenter(pts: list[NPoint]) -> list[NPoint]:
+    """Centre a candidate's bounding box on the origin, then normalise so the
+    limiting axis reaches ±1. Centring is what puts an arrangement in the MIDDLE
+    of the card — a raw chevron sits entirely in the top half, so without this it
+    renders tiny and high; normalising after lets the fit spread it to the frame."""
+    if not pts:
+        return pts
+    xs = [u for u, _ in pts]
+    ys = [v for _, v in pts]
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    return _normalize([(u - cx, v - cy) for u, v in pts])
 
 
 def _grid(count: int, cols: int) -> list[NPoint]:
@@ -102,6 +119,15 @@ def _grid(count: int, cols: int) -> list[NPoint]:
         if placed >= count:
             break
     return pts
+
+
+def _terminal(count: int, geo: Geometry):
+    """Overflow arrangement for a shape that can't hold `count` pips in its own
+    form: fold into a DIAMOND (a rhombus outline), never a rectangular grid.
+    The outline — unlike a filled diamond, whose packing has an inherent tight
+    pair at some counts — spaces its pips around the perimeter, so it reaches the
+    minimum size for every rank 1..10 while staying bilaterally symmetric."""
+    yield _recenter(_diamond(count, geo))
 
 
 def _split(count: int, fold: int) -> list[int]:
@@ -147,8 +173,9 @@ def _pallel(size: int, apex_v: float) -> list[NPoint]:
 def _fold(axis: str, count: int, fold: int) -> list[NPoint]:
     """`count` pips folded into `fold` PARALLEL copies of the ordinary `axis`.
     Every fold translates a same-size copy (constant internal pitch) and offsets
-    it, so the pip+gap buffer holds within and between copies. Maximal folding
-    degenerates to a grid — the terminal that guarantees any rank fits."""
+    it, so the pip+gap buffer holds within and between copies — more folds give
+    each copy fewer, wider-spaced pips, which both fits the count and keeps the
+    pips large."""
     fold = max(1, min(fold, count))
     if axis == "h":                                    # horizontal rows
         return _grid(count, math.ceil(count / fold))
@@ -173,12 +200,19 @@ def _fold(axis: str, count: int, fold: int) -> list[NPoint]:
 
 
 def _candidates(name: str, count: int, geo: Geometry):
-    """Normalised centre-sets to try; fold variants for the foldable ordinaries."""
+    """In-character centre-sets to try, all recentred on the card. `arrange` picks
+    the one with the biggest pips: ordinaries offer their fold variants, the grid
+    offers every column count (2 usually wins in a tall window). No rectangular
+    fallback — a shape that can't hold the count in its own form is handled by
+    `_terminal` (a diamond) in `arrange`."""
     if name in _LINEAR:
         for f in range(1, count + 1):
-            yield _fold(_LINEAR[name], count, f)
+            yield _recenter(_fold(_LINEAR[name], count, f))
+    elif name in _GRID:
+        for cols in range(1, count + 1):
+            yield _recenter(_grid(count, cols))
     elif name in _REGISTRY:
-        yield _REGISTRY[name](count, geo)
+        yield _recenter(_REGISTRY[name](count, geo))
     else:
         raise KeyError(f"unknown pip layout {name!r}; have {names()}")
 
@@ -233,28 +267,32 @@ def _fit_scale(cent: list[NPoint], geo: Geometry, gap: int,
 def arrange(name: str, count: int, geo: Geometry, *, gap: int = PIP_GAP,
             min_scale: float = PIP_MIN_SCALE,
             max_scale: float = PIP_MAX_SCALE) -> tuple[list[Point], float]:
-    """Place `count` pips for `name`: return (centres_px, scale). Pip size is
-    continuous (nearest-scaled at render), chosen as the LARGEST that keeps every
-    pip a `gap` from its neighbours and the inner border; foldable ordinaries try
-    their fold variants and the biggest-pip one wins. Raises `InvalidPipLayout`
-    if `min_scale` can't be met even so."""
+    """Place `count` pips for `name`: return (centres_px, scale). Every candidate
+    is centred on the card, and the pip size is continuous (nearest-scaled at
+    render), chosen as the LARGEST that keeps every pip a `gap` from its
+    neighbours and the inner border. A shape offers in-character variants (fold
+    counts, grid columns) and the biggest-pip one wins; if none reaches
+    `min_scale`, the pips fold into a DIAMOND (`_terminal`) rather than a grid.
+    Raises `InvalidPipLayout` only if even the diamond can't be placed."""
     if count < 1:
         return [], 0.0
-    best_scale, best_pts, reach = 0.0, None, 0.0
-    for cent in _candidates(name, count, geo):
-        scale, pts = _fit_scale(cent, geo, gap, min_scale, max_scale)
-        reach = max(reach, scale)
-        if pts is not None and scale > best_scale:
-            best_scale, best_pts = scale, pts
-    if best_pts is not None:
-        return best_pts, best_scale
-    # The shape can't hold this many pips even at min_scale — fall back to the
-    # compact 2-column grid so every layout works at every rank. The grid keeps
-    # the buffer and ≥ min_scale; the shape is preserved wherever it does fit.
-    if name != "square":
-        scale, pts = _fit_scale(_square(count, geo), geo, gap, min_scale, max_scale)
-        if pts is not None:
-            return pts, scale
+
+    def best_of(cands):
+        bs, bp = 0.0, None
+        for cent in cands:
+            scale, pts = _fit_scale(cent, geo, gap, min_scale, max_scale)
+            nonlocal reach
+            reach = max(reach, scale)
+            if pts is not None and scale > bs:
+                bs, bp = scale, pts
+        return bs, bp
+
+    reach = 0.0
+    scale, pts = best_of(_candidates(name, count, geo))   # in-character forms
+    if pts is None:
+        scale, pts = best_of(_terminal(count, geo))       # fold into a diamond
+    if pts is not None:
+        return pts, scale
     raise InvalidPipLayout(name, count, reach, gap, min_scale, geo)
 
 
@@ -320,41 +358,10 @@ def _bend(n: int, geo: Geometry) -> list[NPoint]:
 
 
 # ---------------------------------------------------------------- grids
-def _max_cols(geo: Geometry) -> int:
-    """How many minimum-size pips fit across the window — a narrow tall card like
-    tarot only takes two, so `square` becomes the classic 2-column pip stack."""
-    ix, _ = _pip_inset(geo)
-    pip = PIP_BASE * PIP_MIN_SCALE
-    usable = geo.art_w - 2 * (ix + PIP_GAP) - pip
-    return 1 if usable <= 0 else max(1, int(usable // (pip + PIP_GAP)) + 1)
-
-
-@register("square")
-def _square(n: int, geo: Geometry) -> list[NPoint]:
-    """Grid, column count capped to what fits the window (2 for tarot). A short
-    final row is centred so the card stays symmetric for odd counts."""
-    if n == 1:
-        return [(0.0, 0.0)]
-    cols = min(math.ceil(math.sqrt(n)), _max_cols(geo))
-    rows = math.ceil(n / cols)
-    xs = _lin(-1.0, 1.0, cols)
-    ys = _lin(-1.0, 1.0, rows)
-    pts: list[NPoint] = []
-    placed = 0
-    for r in range(rows):
-        in_row = min(cols, n - placed)
-        if in_row == cols:
-            row_xs = xs
-        elif in_row == 1:
-            row_xs = [0.0]
-        else:
-            span = (in_row - 1) / (cols - 1)      # centre the short row
-            row_xs = _lin(-span, span, in_row)
-        pts += [(x, ys[r]) for x in row_xs]
-        placed += in_row
-        if placed >= n:
-            break
-    return pts
+# `square` is a grid whose COLUMN COUNT is searched, not fixed: `_candidates`
+# offers every column count and `arrange` keeps the biggest-pip one. In a tall
+# tarot window that is reliably two columns (measured), but the search keeps it
+# correct for any deck geometry instead of hard-coding a rule of thumb.
 
 
 @register("pile")

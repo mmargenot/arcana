@@ -178,9 +178,9 @@ def test_pip_card_invalid_layout_raises(ctx):
                                pip_cfg={"min_scale": 6.0})
 
 
-def test_pip_card_unfittable_shape_grids(ctx):
-    """A 2-D ordinary that can't hold a high count in its own shape renders as
-    the compact grid terminal rather than raising — every layout works at every
+def test_pip_card_unfittable_shape_diamonds(ctx):
+    """A 2-D ordinary that can't hold a high count in its own shape renders by
+    folding into a diamond rather than raising — every layout works at every
     rank."""
     pal, geo, cfg, els = ctx
     m = compose.build_pip_card(pal, geo, els, 10, "cross", cfg["suit_pips"]["cups"])

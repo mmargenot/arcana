@@ -68,13 +68,31 @@ def test_every_layout_works_at_every_rank(geo):
             _assert_placement(centres, k, geo)
 
 
-def test_unfittable_shape_falls_back_to_grid(geo):
-    """A 2-D ordinary that can't hold a high count in its own shape still returns
-    a valid, buffered placement — the compact grid — instead of raising."""
+def test_unfittable_shape_folds_into_diamond(geo):
+    """A 2-D ordinary that can't hold a high count in its own shape folds into a
+    diamond — never a rectangular grid — so it stays a valid, buffered, symmetric
+    placement instead of raising."""
     centres, k = layout.arrange("cross", 10, geo)
     assert len(centres) == 10
     assert layout.PIP_MIN_SCALE <= k <= layout.PIP_MAX_SCALE
     _assert_placement(centres, k, geo)
+    xs = sorted(x for x, _ in centres)
+    mirror = sorted(geo.art_w - x for x, _ in centres)
+    assert all(abs(a - b) <= 1 for a, b in zip(xs, mirror))     # symmetric diamond
+
+
+def test_arrangements_are_centred(geo):
+    """Every arrangement sits in the MIDDLE of the card: its bounding box centre
+    is the window centre (±2px of rounding). A raw chevron sits in the top half,
+    so this guards the recentring that keeps low ranks from rendering tiny/high."""
+    cx0, cy0 = geo.art_w / 2, geo.art_h / 2
+    for name in layout.names():
+        for n in range(1, 11):
+            centres, _ = layout.arrange(name, n, geo)
+            xs = [x for x, _ in centres]
+            ys = [y for _, y in centres]
+            assert abs((min(xs) + max(xs)) / 2 - cx0) <= 2, (name, n)
+            assert abs((min(ys) + max(ys)) / 2 - cy0) <= 2, (name, n)
 
 
 def test_symmetry_where_feasible(geo):
