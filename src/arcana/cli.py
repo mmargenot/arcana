@@ -255,7 +255,8 @@ def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
 
 def cmd_import_mural(name: str, png: Path, face: str,
                      tolerance: float, force: bool, out: Path | None,
-                     configs_root: Path, artifacts_root: Path) -> Path:
+                     configs_root: Path, artifacts_root: Path,
+                     bleed: bool = False) -> Path:
     """Externally generated pixel art -> committed mural layers: quantize the
     RGB to the deck's 14 drawable colors, factor global indices into per-bank
     local layers (mural.split_global), and write the same dotted-stem ASCII a
@@ -268,9 +269,14 @@ def cmd_import_mural(name: str, png: Path, face: str,
         g = quantize_rgb_global(png, pal.for_suit("majors"), tolerance, force)
     except AssetError as e:
         raise SystemExit(str(e))
-    if g.shape != (geo.art_h, geo.art_w):
-        raise SystemExit(f"{png.name} is {g.shape[1]}x{g.shape[0]}, the art "
-                         f"window is {geo.art_w}x{geo.art_h}")
+    sw, sh = mural.safe_size(geo)
+    if g.shape not in ((geo.art_h, geo.art_w), (sh, sw)):
+        raise SystemExit(
+            f"{png.name} is {g.shape[1]}x{g.shape[0]}; expected the art window "
+            f"{geo.art_w}x{geo.art_h} or the visible safe area {sw}x{sh} "
+            f"(what `arcana rd` generates)")
+    if not bleed:
+        g = mural.fit_safe(g, geo)
     dest = out or config_dir(name, configs_root) / "murals"
     dest.mkdir(parents=True, exist_ok=True)
     s = face
@@ -375,12 +381,11 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
                 f"  curl -L -o {init} \\\n"
                 f"    https://upload.wikimedia.org/wikipedia/commons/9/90/"
                 f"RWS_Tarot_00_Fool.jpg")
+        sw, sh = mural.safe_size(geo)
         img = Image.open(init)
-        if img.size != (geo.art_w, geo.art_h):
-            print(f"preparing seed: {init.name} {img.width}x{img.height} -> "
-                  f"{geo.art_w}x{geo.art_h}")
-            arr = pixelate(init, geo.art_w, geo.art_h)
-            img = Image.fromarray(arr)
+        if img.size != (sw, sh):
+            print(f"preparing seed: {init.name} {img.width}x{img.height} -> {sw}x{sh}")
+            img = Image.fromarray(pixelate(init, sw, sh))
         seed_png = out / f"{face}.seed.png"
         img.convert("RGB").save(seed_png)
         init_bytes = seed_png.read_bytes()
@@ -472,6 +477,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="max color distance before a pixel is off-palette (default: 24)")
     im.add_argument("--force", action="store_true",
                     help="snap off-palette pixels to their nearest slot instead of failing")
+    im.add_argument("--bleed", action="store_true",
+                    help="fill the whole art window instead of fitting the art to the "
+                         "visible safe rectangle (see field.insets)")
     im.add_argument("--out", type=Path, metavar="DIR",
                     help="write layers here instead of the deck's murals dir")
 
@@ -522,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "import-mural":
         cmd_import_mural(args.deck, args.png, args.face,
                          args.tolerance, args.force, args.out,
-                         args.configs_root, args.artifacts_root)
+                         args.configs_root, args.artifacts_root, args.bleed)
     elif args.command == "export-mural":
         cmd_export_mural(args.deck, args.face, args.scale,
                          args.out, args.configs_root, args.artifacts_root)

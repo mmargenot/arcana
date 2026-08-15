@@ -19,10 +19,17 @@ away:
   * `bypass_prompt_expansion` is always on. With expansion, a test generation
     returned a forest scene with a deer instead of the intended figure. Across
     22 cards that is the consistency killer.
-  * `upscale_output_factor` is always 1. `import-mural` requires exactly the
-    art window's pixel size and rejects anything else.
+  * `upscale_output_factor` is always 1. Import requires an exact pixel size
+    and rejects anything else.
   * width/height come from `Geometry`, never literals, so a deck that changes
     its art window does not silently generate at the old size.
+
+GENERATE AT THE SAFE SIZE, not the art window's. The frame band overlaps the
+window, so a full-window generation spends a quarter of its pixels on a ring
+that is half-covered on screen and clipped in print -- and puts whatever border
+the model decides to draw right where it will collide with the deck's frame.
+Asking for `mural.safe_size` instead means every generated pixel is visible,
+nothing needs rescaling, and edge decoration has nowhere to land.
 
 `input_palette` constrains colour but does not guarantee the deck's exact
 hexes, and it cannot guarantee that every bank gets used. Import therefore
@@ -124,11 +131,13 @@ def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
                   check_cost: bool = False) -> dict:
     """The request body. Pure -- no network, no key -- so tests can assert the
     invariants without stubbing anything."""
+    from arcana.mural import safe_size
+    w, h = safe_size(geo)
     payload: dict = {
         "prompt": prompt,
         "prompt_style": gen.style,
-        "width": geo.art_w,
-        "height": geo.art_h,
+        "width": w,
+        "height": h,
         "num_images": gen.candidates,
         "input_palette": _b64(palette_png(pal)),
         "bypass_prompt_expansion": True,

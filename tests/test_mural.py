@@ -387,3 +387,35 @@ def test_margin_ink_flags_a_drawn_frame(ctx):
     framed[:] = LINE
     framed[4:-4, 4:-4] = 0                            # a drawn border ring
     assert mural.margin_ink(framed, geo) > 0.12
+
+
+def test_fit_safe_seats_overflowing_art_without_cropping(ctx):
+    """Generated art fills its whole canvas, so it overflows the rectangle the
+    frame leaves visible. Seat it by SCALING, never by clearing the margin:
+    on the Fool that ring holds his feet and the sun, and cropping amputates
+    the composition."""
+    _, geo, _, _ = ctx
+    full = np.full((geo.art_h, geo.art_w), LINE, np.uint8)
+    fitted = mural.fit_safe(full, geo)
+    sw, sh = mural.safe_size(geo)
+    assert fitted.shape == (geo.art_h, geo.art_w)
+    assert mural.fits_safe(fitted, geo)
+    kept = int((fitted != 0).sum())
+    assert kept > 0.8 * sw * sh          # scaled in, not cropped away
+    assert mural.margin_ink(fitted, geo) == 0.0
+
+
+def test_fit_safe_leaves_conforming_art_untouched(ctx, fixture_image):
+    """The export/import round trip is documented as lossless, so art already
+    inside the insets must pass through bit-identical — rescaling it would be
+    destructive and would silently break that guarantee."""
+    pal, geo, _, _ = ctx
+    g = fixture_image.bind(pal)
+    assert mural.fits_safe(g, geo)
+    assert np.array_equal(mural.fit_safe(g, geo), g)
+    # and the same once the field background is baked in, which is what
+    # export-mural writes and what a re-import therefore sees
+    baked = g.copy()
+    baked[baked == 0] = 3 + 3 * BANKS.index("field") + 1
+    assert mural.fits_safe(baked, geo)
+    assert np.array_equal(mural.fit_safe(baked, geo), baked)

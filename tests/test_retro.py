@@ -36,12 +36,16 @@ def payload(ctx, **kw):
     return retro.build_payload(gen, geo, pal, prompt="a figure", **kw)
 
 
-def test_dimensions_come_from_geometry(ctx):
-    """Never literals: a deck that changes its art window must not keep
-    generating at the old size, which would fail on import."""
+def test_generates_at_the_visible_safe_size(ctx):
+    """Never literals, and never the full art window: the frame band overlaps
+    that window, so a full-window generation spends a quarter of its pixels on
+    a ring that is clipped in print -- and gives a model-drawn border a place
+    to land exactly where the deck's frame is."""
+    from arcana.mural import safe_size
     _, geo, _ = ctx
     p = payload(ctx)
-    assert (p["width"], p["height"]) == (geo.art_w, geo.art_h)
+    assert (p["width"], p["height"]) == safe_size(geo)
+    assert (p["width"], p["height"]) != (geo.art_w, geo.art_h)
 
 
 def test_prompt_expansion_is_always_bypassed(ctx):

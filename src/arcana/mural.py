@@ -149,6 +149,83 @@ def is_committed(murals_dir: str | Path, key: str) -> bool:
     return any(Path(murals_dir).glob(f"{key}.*"))
 
 
+def safe_size(geo: Geometry) -> tuple[int, int]:
+    """(w, h) of the art window's fully-visible rectangle.
+
+    The frame band overlaps the art window, so only the area inside
+    `field.insets` is wholly visible -- 112x208 of a 144x224 window on the
+    reference deck. This is the size art should be COMPOSED at: everything
+    outside it is half-covered on screen and clipped in print."""
+    from arcana import field
+    ix, iy = field.insets(geo)
+    return geo.art_w - 2 * ix, geo.art_h - 2 * iy
+
+
+def fits_safe(m: np.ndarray, geo: Geometry) -> bool:
+    """Does the margin hold nothing but background?
+
+    Not "is the margin empty": `export-mural` renders the COMPOSED window, so a
+    re-imported export has the field baked in and is opaque everywhere. Field
+    tones in the margin are background by definition and carry no composition,
+    so such art is already conforming and must pass through untouched -- that
+    is what keeps the export/import round trip lossless.
+
+    Anything else out there -- a figure, a line, a drawn border -- is
+    composition or cruft sitting where the frame will cover it, and gets
+    seated by `fit_safe`."""
+    from arcana import field
+    ix, iy = field.insets(geo)
+    if m.shape != (geo.art_h, geo.art_w):
+        return False
+    base = 3 + 3 * BANKS.index("field")
+    background = {0, base, base + 1, base + 2}
+    edges = (m[:iy], m[m.shape[0] - iy:], m[:, :ix], m[:, m.shape[1] - ix:])
+    return all(set(np.unique(e).tolist()) <= background for e in edges)
+
+
+def fit_safe(m: np.ndarray, geo: Geometry) -> np.ndarray:
+    """Scale a global-index mural down to the safe rectangle and centre it.
+
+    THE INSET IS THE CONVENTION, not a suggestion: authored murals keep their
+    foreground inside `field.insets` and `test_image_respects_field_insets`
+    asserts it. Import had no such discipline -- quantising a full-window PNG
+    marks every pixel opaque -- so imported art ran under the frame while
+    hand-authored art did not, the same format behaving two ways depending on
+    where it came from.
+
+    SCALED, NOT CROPPED. Clearing the margin would be simpler and is wrong: on
+    a full-bleed generation the ring is not empty, it holds the Fool's feet and
+    the sun, so cropping amputates the composition. Scaling keeps all of it and
+    just seats it inside the visible rectangle.
+
+    Resampling is NEAREST on the index matrix, never on colour. Picking whole
+    pixels cannot invent a value outside the palette, where interpolating RGB
+    would land between slots and need re-quantising; it is also the only
+    resample that leaves a pixel grid crisp. Non-integer ratios still drop
+    rows and columns, which is why `arcana rd` generates at `safe_size` in the
+    first place -- this path exists for art that arrives at window size."""
+    sw, sh = safe_size(geo)
+    h, w = m.shape
+    if (w, h) != (sw, sh) and fits_safe(m, geo):
+        # Already inside the safe rectangle -- authored art, or a re-import of
+        # an export. Rescaling it would be destructive and, worse, would break
+        # the documented export/import round trip, which must stay lossless.
+        return m
+    if (w, h) == (sw, sh):
+        scaled = m
+    else:
+        k = min(sw / w, sh / h)
+        nw, nh = max(1, int(round(w * k))), max(1, int(round(h * k)))
+        ys = (np.arange(nh) * h) // nh
+        xs = (np.arange(nw) * w) // nw
+        scaled = m[np.ix_(ys, xs)]
+    out = np.zeros((geo.art_h, geo.art_w), np.uint8)
+    oy = (geo.art_h - scaled.shape[0]) // 2
+    ox = (geo.art_w - scaled.shape[1]) // 2
+    out[oy:oy + scaled.shape[0], ox:ox + scaled.shape[1]] = scaled
+    return out
+
+
 def margin_ink(m: np.ndarray, geo: Geometry) -> float:
     """Fraction of the covered margin that is LINE, as a border-cruft alarm.
 
