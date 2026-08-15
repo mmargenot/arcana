@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "decks" / "configs" / "vaporwave-rws"
 
 FIXTURE_N = 7          # arbitrary major number the fixture mural is filed under
+FIXTURE_KEY = mural.major_key(FIXTURE_N)
 
 
 @pytest.fixture(scope="session")
@@ -38,26 +39,14 @@ def ctx(tmp_path_factory):
 def fixture_image(ctx) -> Element:
     """A deterministic art-window mural meeting the majors' charter: a LINE
     frame, a PAPER strip, and a dark/mid/light band from every bank — all kept
-    inside `field.insets`. Built in GLOBAL index space and factored through
-    split_global, so the fixture exercises the same layer format a hand (or
-    import-mural) would produce."""
+    inside `field.insets`.
+
+    This is `seed.placeholder_face`, imported rather than duplicated: the image
+    a deck seeds for an un-drawn face and the image these tests assert against
+    are the same contract, so there must be exactly one generator. If the
+    charter changes, both move together or neither does."""
     _, geo, _, _ = ctx
-    g = np.zeros((geo.art_h, geo.art_w), np.uint8)
-    ix, iy = field.insets(geo)
-    top, bot = iy + 12, geo.art_h - iy - 12
-    left, right = ix + 8, geo.art_w - ix - 8
-    g[top:bot, left:right] = LINE                 # frame, then carve interior
-    inner = g[top + 2:bot - 2, left + 2:right - 2]
-    inner[:4, :] = PAPER
-    body = inner[4:]
-    h = body.shape[0] // len(BANKS)
-    for i in range(len(BANKS)):                   # one band per bank
-        base = 3 + 3 * i
-        band = body[i * h:(i + 1) * h]
-        w3 = band.shape[1] // 3
-        band[:, :w3] = base                       # dark
-        band[:, w3:2 * w3] = base + 1             # mid
-        band[:, 2 * w3:] = base + 2               # light
+    g = seed.placeholder_face(geo)
     return Element(name="fixture.mural", role="mural", size=g.shape,
                    layers=mural.split_global(g))
 
@@ -67,7 +56,7 @@ def murals_dir(tmp_path_factory, fixture_image) -> Path:
     """The fixture written to disk in the committed layout, so loader tests go
     through the real file path (dotted stems, per-bank probing)."""
     d = tmp_path_factory.mktemp("murals")
-    s = mural.stem(FIXTURE_N)
+    s = FIXTURE_KEY
     for bank, layer in fixture_image.layers.items():
         tileio.write_ascii(layer, d / f"{s}.{bank}.txt", name=f"{s}.{bank}")
     return d
@@ -78,7 +67,7 @@ def test_loader_round_trips_written_layers(ctx, murals_dir, fixture_image):
     """write_ascii -> load_mural reproduces the layers exactly: the on-disk
     ASCII format carries a mural without loss."""
     _, geo, _, _ = ctx
-    el = mural.load_mural(murals_dir, FIXTURE_N, geo, required=True)
+    el = mural.load_mural(murals_dir, FIXTURE_KEY, geo, required=True)
     assert el is not None and el.role == "mural"
     assert set(el.layers) == set(fixture_image.layers)
     for bank, a in el.layers.items():
@@ -190,27 +179,55 @@ def test_missing_mural_errors_when_required(ctx, tmp_path):
     """A required mural must fail loudly, naming the expected files — never a
     silently bare card."""
     _, geo, _, _ = ctx
-    assert mural.load_mural(tmp_path, 7, geo) is None
+    assert mural.load_mural(tmp_path, FIXTURE_KEY, geo) is None
     with pytest.raises(AssetError, match="major_07"):
-        mural.load_mural(tmp_path, 7, geo, required=True)
+        mural.load_mural(tmp_path, FIXTURE_KEY, geo, required=True)
 
 
 def test_has_murals_is_presence(murals_dir, tmp_path):
-    """Presence of any layer file is the opt-in switch — no config knob."""
-    assert mural.has_murals(murals_dir)
-    assert not mural.has_murals(tmp_path)            # empty dir
-    assert not mural.has_murals(tmp_path / "absent")  # no dir at all
+    """Presence of any layer file for a known key — no config knob."""
+    assert mural.has_murals(murals_dir, (FIXTURE_KEY,))
+    assert not mural.has_murals(tmp_path, (FIXTURE_KEY,))            # empty dir
+    assert not mural.has_murals(tmp_path / "absent", (FIXTURE_KEY,))  # no dir
 
 
-def test_partial_mural_set_fails_loudly(cli_configs_root, tmp_path):
-    """All-or-nothing: once a deck ships ANY mural layers, `arcana majors`
-    requires every major — a partial set must name the first missing stem, not
-    print a deck with silently bare cards mixed in."""
+def test_committed_art_beats_placeholder(ctx, murals_dir, fixture_image, tmp_path):
+    """Committed art always wins over a seeded placeholder, and a face with no
+    committed art still loads. This is what replaced all-or-nothing: the deck
+    renders while art lands one card at a time."""
+    pal, geo, _, _ = ctx
+    fallback = tmp_path / "assets"
+    seed.seed_faces(fallback, geo, [FIXTURE_KEY, "major_00"])
+    el = mural.load_mural(murals_dir, FIXTURE_KEY, geo,
+                          fallback_dir=fallback / "murals")
+    assert np.array_equal(el.bind(pal), fixture_image.bind(pal))   # committed
+    assert mural.load_mural(murals_dir, "major_00", geo,
+                            fallback_dir=fallback / "murals") is not None
+    assert mural.is_committed(murals_dir, FIXTURE_KEY)
+    assert not mural.is_committed(murals_dir, "major_00")
+
+
+def test_strict_is_the_print_gate(cli_configs_root, tmp_path):
+    """`--strict` is where all-or-nothing's intent now lives: a deck may render
+    with placeholders, but it must not go to print with one. The error names
+    every face that is still a placeholder."""
     from arcana.cli import main
+    roots = ["--configs-root", str(cli_configs_root),
+             "--artifacts-root", str(tmp_path / "artifacts")]
+    assert main(roots + ["majors", "vaporwave-rws"]) == 0     # renders happily
     with pytest.raises(SystemExit, match="major_00"):
-        main(["--configs-root", str(cli_configs_root),
-              "--artifacts-root", str(tmp_path / "artifacts"),
-              "majors", "vaporwave-rws"])
+        main(roots + ["majors", "vaporwave-rws", "--strict"])
+
+
+def test_face_keys_are_free_form(ctx):
+    """The seam is not tarot-specific: a deck declares its own face set, so
+    JQKA courts and one-off specials use the identical path."""
+    _, geo, _, _ = ctx
+    assert mural.face_keys() == mural.MAJOR_KEYS and len(mural.MAJOR_KEYS) == 22
+    keys = mural.face_keys({"faces": ["court_cups_queen", "wizard"]})
+    assert keys == ("court_cups_queen", "wizard")
+    g = seed.placeholder_face(geo, "wizard")
+    assert sorted(mural.split_global(g)) == sorted(BANKS)
 
 
 # --- split_global (the import path's writer) ----------------------------
@@ -301,7 +318,7 @@ def cli_configs_root(tmp_path, fixture_image):
     shutil.copy(CONFIG / "palette.yaml", deck / "palette.yaml")
     shutil.copy(CONFIG / "deck.yaml", deck / "deck.yaml")
     d = deck / "murals"
-    s = mural.stem(FIXTURE_N)
+    s = FIXTURE_KEY
     for bank, layer in fixture_image.layers.items():
         tileio.write_ascii(layer, d / f"{s}.{bank}.txt")
     return root
@@ -315,14 +332,14 @@ def test_import_export_cli_round_trip(ctx, fixture_image, cli_configs_root, tmp_
     roots = ["--configs-root", str(cli_configs_root),
              "--artifacts-root", str(tmp_path / "artifacts")]
     rc = main(roots + ["export-mural", "vaporwave-rws",
-                       "--major", str(FIXTURE_N), "--out", str(png)])
+                       "--face", FIXTURE_KEY, "--out", str(png)])
     assert rc == 0 and png.exists()
     dest = tmp_path / "imported"
     rc = main(roots + ["import-mural", "vaporwave-rws", str(png),
-                       "--major", str(FIXTURE_N), "--out", str(dest)])
+                       "--face", FIXTURE_KEY, "--out", str(dest)])
     assert rc == 0
     pal, geo, _, _ = ctx
-    el = mural.load_mural(dest, FIXTURE_N, geo)
+    el = mural.load_mural(dest, FIXTURE_KEY, geo)
     assert el is not None
     assert np.array_equal(el.bind(pal), _window(ctx, fixture_image))
 
@@ -342,13 +359,13 @@ def test_import_clears_stale_layers(ctx, cli_configs_root, tmp_path):
     png = tmp_path / "field-only.png"
     Image.fromarray(pal.for_suit("majors").render(window)).save(png)
     dest = tmp_path / "imported"
-    s = mural.stem(FIXTURE_N)
+    s = FIXTURE_KEY
     dest.mkdir()
     (dest / f"{s}.motif.txt").write_text("# stale\n.\n")   # must be cleared
     rc = main(["--configs-root", str(cli_configs_root),
                "--artifacts-root", str(tmp_path / "artifacts"),
                "import-mural", "vaporwave-rws", str(png),
-               "--major", str(FIXTURE_N), "--out", str(dest)])
+               "--face", FIXTURE_KEY, "--out", str(dest)])
     assert rc == 0
     assert not (dest / f"{s}.motif.txt").exists()
     assert (dest / f"{s}.field.txt").exists()

@@ -17,13 +17,15 @@ binary artifacts:
 pips as ASCII `.txt` — deliberately mixed, to exercise `tileio.read_any`.
 """
 from __future__ import annotations
+from collections.abc import Iterable
 from pathlib import Path
 import numpy as np
 
+from arcana.geometry import Geometry
 from arcana.palette import LINE, PAPER, DARK, MID
 from arcana.elements import write_tile, write_authoring_palette
 from arcana.tileio import from_ascii, write_ascii
-from arcana.text import Font, CELL_W, CELL_H, INK
+from arcana.text import Font, CELL_W, CELL_H, INK, fit_line
 
 
 # ---------------------------------------------------------------- procedural
@@ -236,11 +238,75 @@ def placeholder_font() -> Font:
     return Font(glyphs=glyphs)
 
 
+# ---------------------------------------------------------------- faces
+def placeholder_face(geo: Geometry, key: str = "") -> np.ndarray:
+    """A placeholder mural for one face card, in GLOBAL index space (0-14).
+
+    Deliberately meets the majors' charter — a LINE frame, a PAPER strip, and a
+    dark/mid/light band from every bank, all inside `field.insets` — because
+    that is the contract real art must meet, and a placeholder that quietly
+    failed it would hide the very bug the charter exists to catch.
+
+    It is also unmistakably a placeholder, and `key` is drawn across it so the
+    22 cards are told apart at a glance. That distinction is what lets the
+    all-or-nothing rule go: a bare field is a silent failure, a labelled
+    colour-bar panel is not.
+    """
+    from arcana import field
+    from arcana.palette import BANKS
+    g = np.zeros((geo.art_h, geo.art_w), np.uint8)
+    ix, iy = field.insets(geo)
+    top, bot = iy + 12, geo.art_h - iy - 12
+    left, right = ix + 8, geo.art_w - ix - 8
+    g[top:bot, left:right] = LINE                 # frame, then carve interior
+    inner = g[top + 2:bot - 2, left + 2:right - 2]
+    inner[:4, :] = PAPER
+    body = inner[4:]
+    h = body.shape[0] // len(BANKS)
+    for i in range(len(BANKS)):                   # one band per bank
+        base = 3 + 3 * i
+        band = body[i * h:(i + 1) * h]
+        w3 = band.shape[1] // 3
+        band[:, :w3] = base                       # dark
+        band[:, w3:2 * w3] = base + 1             # mid
+        band[:, 2 * w3:] = base + 2               # light
+    if key:
+        strip = fit_line(placeholder_font(), key.upper()[:16], right - left - 8)
+        sh, sw = strip.shape
+        y = top + (bot - top - sh) // 2
+        x = left + (right - left - sw) // 2
+        g[y:y + sh, x:x + sw][strip != 0] = LINE
+    return g
+
+
+def seed_faces(dest_root: str | Path, geo: Geometry,
+               keys: Iterable[str]) -> list[str]:
+    """Write a placeholder mural per face key under `dest_root/murals/`, in the
+    same per-bank ASCII layout committed art uses — so a placeholder and real
+    art are loaded by identical code. Generated, therefore artifacts: real face
+    art is committed in the deck's config dir and always wins."""
+    d = Path(dest_root) / "murals"
+    d.mkdir(parents=True, exist_ok=True)
+    from arcana.mural import split_global
+    written = []
+    for key in keys:
+        for stale in d.glob(f"{key}.*.txt"):
+            stale.unlink()          # a dropped bank must not linger (see mural.py)
+        for bank, layer in split_global(placeholder_face(geo, key)).items():
+            write_ascii(layer, d / f"{key}.{bank}.txt", name=f"{key}.{bank}")
+        written.append(key)
+    return written
+
+
 # ---------------------------------------------------------------- seed
-def seed_deck(dest_root: str | Path) -> Path:
+def seed_deck(dest_root: str | Path, geo: Geometry | None = None,
+              faces: Iterable[str] | None = None) -> Path:
     """Write a full set of placeholder tiles (and the authoring palette) under
     dest_root, laid out to match the standard element manifest. Border and
-    cartouche are indexed PNG; pips are ASCII .txt."""
+    cartouche are indexed PNG; pips are ASCII .txt.
+
+    With `geo`, also writes a placeholder mural per face key so the majors
+    render before any art exists."""
     root = Path(dest_root)
     write_authoring_palette(root)
     write_tile(corner(), root / "border/corner.border.png")
@@ -248,4 +314,7 @@ def seed_deck(dest_root: str | Path) -> Path:
     write_tile(roundel(), root / "cartouche/roundel.motif.png")
     for name in PIPS_ASCII:
         write_ascii(pip(name), root / f"pips/{name}.motif.txt", name=f"{name}.motif")
+    if geo is not None:
+        from arcana.mural import face_keys
+        seed_faces(root, geo, faces if faces is not None else face_keys())
     return root

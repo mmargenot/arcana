@@ -1,0 +1,34 @@
+# Generation config: the deck's house style, plus one prompt per face card.
+#
+# Style, strength and candidate count are DECK IDENTITY — settled once so all
+# 22 majors look like one deck — which is why they live here and not behind CLI
+# flags, the same split as pip_layouts and field_designs in deck.yaml.
+#
+# The model is here for SEMANTIC COLOUR, not pixelation. Seeded with an RWS
+# scan it keeps the composition and re-renders it in the deck's palette; a
+# nearest-colour mapping cannot, because it only knows the Fool's aged sky is
+# warm, not that it is a sky.
+
+provider: retro-diffusion
+
+# 64-384px covers the 144x224 art window. rd_pro__default also fits (max 256)
+# and accepts up to 9 reference_images — the lever for style consistency once a
+# few approved cards exist.
+style: rd_plus__default
+
+# img2img denoise against the seed. Low values preserve the scan's own colour
+# and texture, which is exactly what fights a stark 14-colour palette; high
+# values discard the composition the seed exists to carry.
+strength: 0.6
+
+candidates: 4
+
+# Subject only. NEVER write "pixel art" — the style handles rendering, and
+# saying it in the prompt tends to produce a picture *of* pixel art.
+# Keep the figure inside the safe area: the frame band overlaps the art window,
+# so the usable centre is 112x208 of the 144x224 window.
+prompts:
+  major_00: >-
+    a young traveller stepping off a cliff edge, head raised, a white rose in
+    one hand and a knapsack on a staff over the shoulder, a small white dog
+    leaping at the heels, snowy peaks behind, a white sun high in the corner

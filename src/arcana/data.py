@@ -86,6 +86,19 @@ def major_label(number: int, *, split: bool = False,
     return None, f"{numeral} {name}"
 
 
+def face_label(key: str, *, split: bool = False,
+               cfg: dict | None = None) -> tuple[str | None, str | None]:
+    """Label for any face card, by key. A tarot major (`major_07`) keeps its
+    roman numeral and canonical name; any other key (`court_cups_queen`,
+    `wizard`) reads its title from `labels.face_titles[key]`, else its own key
+    prettified. Numbering is a tarot convention, not a face-card one, so a
+    non-major gets a title and no numeral."""
+    if key.startswith("major_") and key[6:].isdigit() and int(key[6:]) < len(MAJOR_NAMES):
+        return major_label(int(key[6:]), split=split, cfg=cfg)
+    over = _labels_cfg(cfg).get("face_titles") or {}
+    return None, str(over.get(key, key.replace("_", " "))).upper()
+
+
 def label_options(cfg: dict | None) -> dict:
     """Read the `labels:` block with defaults, for the CLI/builders."""
     lc = _labels_cfg(cfg)

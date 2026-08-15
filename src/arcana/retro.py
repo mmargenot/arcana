@@ -1,0 +1,200 @@
+"""
+Generation: an RWS scan in, palette-constrained pixel art out.
+
+This is the seam the whole face-card path is built around. `arcana` composes
+frames, fields and labels algorithmically; the one thing it cannot compute is a
+scene. So a generative model draws the art window, seeded by the public-domain
+RWS card so composition carries across, and the result comes back through
+`import-mural` like any hand-authored art.
+
+WHAT THE MODEL IS FOR. Not pixelation -- a downscale can pixelate. The model
+supplies SEMANTIC COLOUR: it knows the sky is a sky and should take the field
+bank's teal, where a nearest-colour mapping only knows the sky is warm and puts
+it in the flesh ramp. Measured on the Fool, direct quantisation of the scan put
+19,509 px in `figure` and 3 px in `border`. That is the problem being solved.
+
+THREE NON-NEGOTIABLES, each a bug that has already happened or is one call
+away:
+
+  * `bypass_prompt_expansion` is always on. With expansion, a test generation
+    returned a forest scene with a deer instead of the intended figure. Across
+    22 cards that is the consistency killer.
+  * `upscale_output_factor` is always 1. `import-mural` requires exactly the
+    art window's pixel size and rejects anything else.
+  * width/height come from `Geometry`, never literals, so a deck that changes
+    its art window does not silently generate at the old size.
+
+`input_palette` constrains colour but does not guarantee the deck's exact
+hexes, and it cannot guarantee that every bank gets used. Import therefore
+still snaps (`--force`) and still prints the histogram -- that histogram is
+the charter check, not a formality.
+
+THE KEY NEVER TOUCHES CONFIG. `RD_API_KEY` is read from the environment only.
+Cloud environments have no secrets store, so it belongs on the machine that
+runs the call, not in a deck file or an environment variable box.
+"""
+from __future__ import annotations
+
+import base64
+import io
+import json
+import os
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import yaml
+from PIL import Image
+
+from arcana.elements import AssetError
+from arcana.geometry import Geometry
+from arcana.palette import Palette
+
+ENDPOINT = "https://api.retrodiffusion.ai/v1/inferences"
+KEY_ENV = "RD_API_KEY"
+
+DEFAULTS = {
+    "provider": "retro-diffusion",
+    "style": "rd_plus__default",
+    "strength": 0.6,
+    "candidates": 4,
+}
+
+
+class GenerationError(RuntimeError):
+    """A generation could not be requested or the service refused it."""
+
+
+@dataclass(frozen=True, slots=True)
+class Generation:
+    """A deck's generation config: house style plus per-face prompts.
+
+    Style, strength and candidate count are the DECK's identity -- you settle
+    them once and every card inherits them, which is what makes 22 cards look
+    like one deck. They live in config for the same reason `pip_layouts` and
+    `field_designs` do, and are deliberately not CLI flags."""
+    style: str
+    strength: float
+    candidates: int
+    prompts: dict[str, str]
+
+    @classmethod
+    def load(cls, path: str | Path) -> "Generation":
+        p = Path(path)
+        d = dict(DEFAULTS)
+        if p.exists():
+            loaded = yaml.safe_load(p.read_text()) or {}
+            if not isinstance(loaded, dict):
+                raise AssetError(f"{p}: expected a mapping")
+            d.update(loaded)
+        return cls(style=str(d["style"]), strength=float(d["strength"]),
+                   candidates=int(d["candidates"]),
+                   prompts=dict(d.get("prompts") or {}))
+
+    def prompt_for(self, key: str) -> str:
+        try:
+            return self.prompts[key]
+        except KeyError:
+            raise AssetError(
+                f"no prompt for face {key!r}. Add it under `prompts:` in the "
+                f"deck's generation.yaml, or pass --prompt for a one-off.")
+
+
+def palette_png(pal: Palette) -> bytes:
+    """The deck's 14 drawable colours as a PNG, for `input_palette`.
+
+    Index 0 is transparent and `rgb_lut` substitutes paper for it, so it MUST
+    be dropped -- including it would weight paper twice and tell the model the
+    deck has a colour it does not."""
+    lut = pal.rgb_lut()[1:]
+    buf = io.BytesIO()
+    Image.fromarray(lut.reshape(1, -1, 3).astype(np.uint8)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
+
+
+def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
+                  prompt: str, seed: int | None = None,
+                  init: bytes | None = None,
+                  check_cost: bool = False) -> dict:
+    """The request body. Pure -- no network, no key -- so tests can assert the
+    invariants without stubbing anything."""
+    payload: dict = {
+        "prompt": prompt,
+        "prompt_style": gen.style,
+        "width": geo.art_w,
+        "height": geo.art_h,
+        "num_images": gen.candidates,
+        "input_palette": _b64(palette_png(pal)),
+        "bypass_prompt_expansion": True,
+        "upscale_output_factor": 1,
+    }
+    if seed is not None:
+        payload["seed"] = int(seed)
+    if init is not None:
+        payload["input_image"] = _b64(init)
+        payload["strength"] = gen.strength
+    if check_cost:
+        payload["check_cost"] = True
+    return payload
+
+
+def estimate_cost(gen: Generation, geo: Geometry) -> float:
+    """Local USD estimate from Retro Diffusion's published formulas, so a run's
+    price is visible before it is spent. `check_cost` is authoritative; this is
+    for the dry print."""
+    px = geo.art_w * geo.art_h
+    style = gen.style
+    if style.startswith("rd_pro__"):
+        per = 0.18
+    elif "low_res" in style or "mc_" in style or style.endswith(("classic", "skill_icon")):
+        per = max(0.02, (px + 13_700) / 600_000)
+    elif style.startswith("rd_fast__"):
+        per = max(0.015, (px + 100_000) / 6_000_000)
+    else:
+        per = max(0.025, (px + 50_000) / 2_000_000)
+    return per * gen.candidates
+
+
+def api_key() -> str:
+    key = os.environ.get(KEY_ENV, "").strip()
+    if not key:
+        raise GenerationError(
+            f"{KEY_ENV} is not set. Retro Diffusion keys start with 'rdpk-'; "
+            f"export it in the shell that runs this command. Do not put it in "
+            f"a deck config or a cloud environment's variables -- those are "
+            f"readable by anyone with access to the environment.")
+    return key
+
+
+def request(payload: dict, *, timeout: int = 180) -> dict:
+    """POST to the inference endpoint. Stdlib only: this is one JSON call, and
+    a dependency for it would not earn its place."""
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        ENDPOINT, data=body, method="POST",
+        headers={"Content-Type": "application/json", "X-RD-Token": api_key()})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:400]
+        raise GenerationError(f"Retro Diffusion returned {e.code}: {detail}")
+    except urllib.error.URLError as e:
+        raise GenerationError(f"could not reach {ENDPOINT}: {e.reason}")
+
+
+def decode_images(response: dict) -> list[bytes]:
+    """The returned images as raw PNG bytes. The API answers with base64 under
+    `base64_images`; a hosted-URL response is not requested, so anything else
+    is a contract change worth failing on rather than guessing about."""
+    images = response.get("base64_images")
+    if not images:
+        raise GenerationError(
+            f"no images in response (keys: {', '.join(sorted(response)) or 'none'})")
+    return [base64.b64decode(b) for b in images]
