@@ -297,11 +297,12 @@ def cmd_import_mural(name: str, png: Path, face: str,
     and authored art are indistinguishable on disk."""
     deck = load_deck(name, configs_root)
     pal, geo = deck.palette, deck.geometry
-    from arcana.tileio import quantize_rgb_global, write_ascii
+    from arcana.tileio import fidelity, quantize_rgb_global, write_ascii
     try:
         g = quantize_rgb_global(png, pal.for_suit("majors"), tolerance, force)
     except AssetError as e:
         raise SystemExit(str(e))
+    fid = fidelity(png, pal.for_suit("majors"))
     sw, sh = mural.safe_size(geo)
     if g.shape not in ((geo.art_h, geo.art_w), (sh, sw)):
         raise SystemExit(
@@ -336,6 +337,17 @@ def cmd_import_mural(name: str, png: Path, face: str,
     for i, (lab, n) in enumerate(zip(labels, counts)):
         if n:
             print(f"  {i:2} {lab:14} {n:6} px")
+    # Was this a TRANSLATION or an approximation? Both make a plausible card, so
+    # the difference has to be measured: art already in the deck's colours lands
+    # on its slots (exact ~1.0, few source colours), where anti-aliased or
+    # off-palette art gets dragged there one small lie at a time.
+    print(f"  translation: {fid['exact']:.0%} of pixels already on a deck colour, "
+          f"{fid['colours']} source colours, snap mean {fid['mean']:.0f} / "
+          f"p95 {fid['p95']:.0f} / max {fid['max']:.0f}")
+    if fid["exact"] < 0.5 or fid["colours"] > 64:
+        print("  ! this is an approximation, not a translation — the source is "
+              "not pixel art in this palette. Check `input_palette` reached the "
+              "generator, and prefer a smaller generation grid over upscaling")
     missing = [lab for lab, n in zip(labels[1:], counts[1:]) if not n]
     if missing:
         print(f"  ! unused: {', '.join(missing)} — a bank the art never touches "

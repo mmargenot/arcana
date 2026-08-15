@@ -492,3 +492,30 @@ def test_reground_tints_rather_than_erases_on_a_leak(ctx):
     leaked = (mural.reground(g)[100:104, 40:100] != 0).all()
     erased = (mural.knockout_ground(g)[100:104, 40:100] == 0).all()
     assert leaked and erased
+
+
+def test_fidelity_separates_a_translation_from_an_approximation(ctx, tmp_path):
+    """Import is only a TRANSLATION when the art is already pixel art in the
+    deck's colours: then every pixel lands on the slot it was already on and
+    the glyph matrix carries everything the PNG did. Art in other colours still
+    imports under --force, but each snapped pixel is a small lie, and nothing
+    on screen distinguishes the two -- both make a plausible card. So it is
+    measured."""
+    from PIL import Image
+    from arcana.tileio import fidelity
+    pal, geo, _, _ = ctx
+    maj = pal.for_suit("majors")
+
+    # art built FROM the palette: a perfect translation
+    idx = np.arange(geo.art_h * geo.art_w, dtype=np.uint8).reshape(geo.art_h, -1) % 14 + 1
+    exact = tmp_path / "exact.png"
+    Image.fromarray(maj.render(idx)).save(exact)
+    f = fidelity(exact, maj)
+    assert f["exact"] == 1.0 and f["colours"] == 14 and f["max"] == 0.0
+
+    # a photographic source: many colours, none of them the deck's
+    rng = np.random.default_rng(0)
+    noisy = tmp_path / "noisy.png"
+    Image.fromarray(rng.integers(0, 256, (geo.art_h, geo.art_w, 3), dtype=np.uint8)).save(noisy)
+    f = fidelity(noisy, maj)
+    assert f["exact"] < 0.1 and f["colours"] > 1000 and f["mean"] > 10

@@ -117,6 +117,40 @@ def quantize_rgb_global(path: str | Path, palette, tolerance: float = 24.0,
     return idx
 
 
+def fidelity(path: str | Path, palette) -> dict:
+    """How faithfully does this image TRANSLATE into the deck's glyphs?
+
+    The import is only a translation if the art is already pixel art in the
+    deck's colours: then each pixel lands on a slot it was practically already
+    on, and the glyph matrix carries everything the PNG did. Art that is
+    anti-aliased, dithered, or simply in other colours still imports under
+    `--force`, but every snapped pixel is a small lie, and enough of them mean
+    the mural is an approximation of the art rather than the art.
+
+    Nothing distinguishes those two cases on screen -- both produce a plausible
+    card -- so it has to be measured. Returns the snap distance distribution and
+    the number of distinct colours the source actually used; a source with far
+    more colours than the palette has was never pixel art in this palette.
+    """
+    path = Path(path)
+    rgba = np.array(Image.open(path).convert("RGBA"), np.int32)
+    rgb, alpha = rgba[..., :3], rgba[..., 3]
+    ref = palette.rgb_lut().astype(np.int32)[1:]
+    opaque = alpha >= 128
+    d = ((rgb[:, :, None, :] - ref[None, None, :, :]) ** 2).sum(-1)
+    dist = np.sqrt(d.min(-1))[opaque]
+    colours = len(np.unique(rgb[opaque].reshape(-1, 3), axis=0)) if opaque.any() else 0
+    if dist.size == 0:
+        return {"mean": 0.0, "p95": 0.0, "max": 0.0, "exact": 1.0, "colours": 0}
+    return {
+        "mean": float(dist.mean()),
+        "p95": float(np.percentile(dist, 95)),
+        "max": float(dist.max()),
+        "exact": float((dist < 1.0).mean()),   # share landing on a palette colour
+        "colours": int(colours),
+    }
+
+
 def write_rgb(art: np.ndarray, path: str | Path) -> None:
     """Export as plain RGB PNG for editing in a non-indexed tool."""
     ref = np.array(AUTHORING, np.uint8)
