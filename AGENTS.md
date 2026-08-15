@@ -440,24 +440,60 @@ into value tiers that shouldn't exist. Lesson: SLIC gives shape for free, but
 knowing a sky should be teal requires knowing what a sky *is*. Let the SLIC
 output be a near-monochrome value study and let a generative model supply color.
 
-### Generation plan (not yet implemented)
+### Generation pipeline (shipped)
 
 ```
-RWS scan
-  -> bilateral + median (kill stipple)
-  -> SLIC ~220 segments, flatten to region medians
-  -> downscale to 144x224
-  -> generative model, input_image at strength ~0.6, force_palette,
-     bypass_prompt_expansion
+RWS scan (Wikimedia Commons, fetched by face key)
+  -> crop to the printed picture area   (arcana.pixelate: the card's own title
+     band and paper margin must not reach the model)
+  -> light de-screen, outline expansion, median decimation to the SAFE SIZE
+  -> rd_pro__pixelate, input_image at strength 0.35, input_palette,
+     bypass_prompt_expansion                             (arcana.retro)
+  -> quantize to the 14 slots, seat inside the safe rect (arcana.mural)
 ```
 
-The collapse carries composition; the model supplies semantic color and pixel
-rendering. A test generation without a composition constraint produced a forest
-scene with a deer instead of the intended figure — **prompt expansion** is the
-consistency killer for a 78-card deck, so `bypass_prompt_expansion` is
-non-negotiable. Sequence the 22 majors first (Fool / Tower / Moon cover figure,
-architecture, landscape); Marseille-style pip minors collapse 40 cards into a
-lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
+**PIXELATE FIRST, PALETTE LAST.** The earlier sketch here flattened SLIC regions
+to median colours at full resolution and downscaled afterwards — a colour
+operation ahead of pixelation. On this source that destroys the thing worth
+keeping: PCS's ink hatching is high-frequency LINE detail, so flattening
+dissolves it before anything decides which pixels survive (the same failure
+recorded for mean-shift above).
+
+**The model is for SEMANTIC COLOUR, not pixelation.** A downscale can pixelate.
+What it cannot do is know a sky is a sky: quantising the pixelated Fool straight
+to the palette put **19,510 px in `figure` and 3 px in `border`**, because the
+aged yellow sky is warm and nearest-colour drops it in the flesh ramp. That is
+the measurement behind "colour assignment is semantic", now on the real path.
+
+**Transformative, not generative.** `rd_plus__*`/`rd_fast__*` take the prompt as
+the subject and the image as a hint — they produce *a card like this one*.
+`rd_pro__pixelate` requires an input image and treats it as the subject. Strength
+is the only fidelity knob the API offers: the `negative` field exists but its
+models ignore it, so **border cruft cannot be prompted away**. The defences are
+structural — the crop, generating at the safe size, and a `margin_ink` warning.
+
+**Generate at the safe size, not the art window.** The frame band overlaps the
+window, so a full-window generation spends a quarter of its pixels on a ring
+that is clipped in print, and hands a model-drawn border the exact spot the
+deck's frame occupies. 112×208 of 144×224 here.
+
+A test generation without a composition constraint produced a forest scene with
+a deer instead of the intended figure — **prompt expansion** is the consistency
+killer for a 78-card deck, so `bypass_prompt_expansion` is non-negotiable, and
+prompts are short anchors rather than scene descriptions for the same reason.
+Sequence the 22 majors first (Fool / Tower / Moon cover figure, architecture,
+landscape); Marseille-style pip minors collapse 40 cards into a lattice + 4
+sprites, leaving ~38 pieces of real art instead of 78.
+
+### The source scan is an edition question
+
+Measured before use, because two GitHub-hosted RWS sets failed it: a genuine
+1909 scan has a warm line plate and warm-cream paper (`#EDE6D8`), where a modern
+restoration has near-black line on clipped white. The Wikimedia Commons file
+passes (paper `#F1E9E0`). Its flat sky carries a high-frequency σ of only ~4, so
+the heavy `bilateral(15,90,90)` + `median(9)` prescribed above would erode
+hatching for nothing — `pixelate.descreen` defaults to a 3px median instead.
+Turn it up for a noisier scan; not by reflex.
 
 ---
 
@@ -492,16 +528,25 @@ pipeline** are complete and tested: two independent card axes — a heraldic
 `build_major_card` and `arcana cards` / `arcana majors`. The **`figure` bank is
 the only unexercised bank**. Still open:
 
-1. **Major-arcana mural designs** — the *pipeline* is done and tested
-   (`arcana.mural`: per-bank layer format, loader, compose seam, and the
-   lossless `export-mural`/`import-mural` pixel↔ASCII round trip), but the
-   *art* is open: two full design rounds (procedural generation, then
-   hand-typed ASCII) were produced and retired on quality. The next attempt
-   should likely enter through the external-art path — `arcana export-mural`
-   (init image) → a pixel-art model or human artist → `arcana import-mural` —
-   which needs no engine change.
-2. **Court cards** — the 16 figures (page/knight/queen/king), likely sharing the
-   major-arcana mural path.
+1. **Face-card art** — the *pipeline* is done, tested, and now generates:
+   `arcana rd --face KEY` fetches the RWS scan, seeds a generation, and
+   `import-mural` seats the result and renders the card. Two earlier design
+   rounds (procedural, then hand-typed ASCII) were retired on quality; the
+   external-art path replaced them and needs no engine change. What is open is
+   the *art itself* — 21 majors after the Fool, and a house style settled across
+   them (`rd_pro__default` takes up to 9 `reference_images`, which is the lever
+   once a few cards are approved).
+2. **Court cards and specials** — with face keys being free-form strings, a
+   deck's courts (`court_cups_queen`) or a game's `wizard` are pure config:
+   list them under `faces:` in `deck.yaml` and the same path serves them. No
+   engine work is expected.
+3. **The mural's ground.** A mural is an image laid on a field, so art carrying
+   its own opaque sky meets the field mat at a visible rectangle. `remove_bg`
+   (service-side) and `knockout_ground` (local, at import) both make the ground
+   transparent so the sky IS the mat. The knockout's guards are measured — never
+   line or paper, since the figure's outline runs to the border and an unguarded
+   flood dissolves it (69.9% of the window against 43.3%) — but it has only been
+   exercised against a nearest-colour quantisation, not real generated art.
 
 ## Open questions
 
@@ -511,6 +556,12 @@ the only unexercised bank**. Still open:
 - The pentacle is already a roundel, so mounting it in a cartouche is redundant;
   the clean fix is drawing the star directly onto the cartouche interior for
   that one suit.
-- `force_palette` is still untested against a real generation.
+- `force_palette` is NOT an inference parameter — the earlier note here assumed
+  it was. It exists only on custom-style creation (`POST /v1/styles`, alongside
+  `min_width`/`min_height` and a reference image). Inference constrains colour
+  with `input_palette`, which biases but does not guarantee the deck's exact
+  hexes or that every bank gets used; deck-wide enforcement would mean creating
+  a `user__<name>_<id>` style. `import-mural --force` remains the backstop, and
+  the histogram it prints is the check that matters.
 - The placeholder swords pip nearly vanishes at 16×16 — a drawing problem, not a
   system one, but the busy-ness judgment is provisional until real pips exist.

@@ -8,20 +8,26 @@ config to the render pipeline and writes the results.
         [--suit S | --all-suits]         1-10) with numeral/title labels;
         [--no-labels]                    --layout forces one everywhere,
                                          --no-labels renders bare
-    arcana majors <deck> [--no-labels]   render the 22 major arcana: mural
-        [--no-murals]                    (when the deck ships murals/ layers)
-                                         + frame + label
+    arcana majors <deck> [--face KEY]    render the deck's face cards: mural +
+        [--no-labels] [--no-murals]      frame + label. Committed art wins, a
+        [--strict]                       placeholder fills in, --strict is the
+                                         print gate
+    arcana rd <deck> --face KEY          generate candidate art: fetch the RWS
+        [--init PATH] [--prompt TEXT]    scan, seed from it, write candidates
+        [--seed N]                       for a human to choose between
     arcana import-mural <deck> <png>     quantize external pixel art (Retro
-        --major N [--force]              Diffusion output, edited exports...)
-                                         into a major's committed mural layers
-    arcana export-mural <deck> --major N render a major's mural (art window
+        --face KEY [--force] [--bleed]   Diffusion output, edited exports...)
+                                         into a face's committed mural layers,
+                                         then render the card
+    arcana export-mural <deck> --face K  render a face's mural (art window
                                          only) to RGB PNG, for external tools;
                                          the exact inverse of import-mural
-    arcana seed <deck>                   (re)write placeholder tiles only
+    arcana seed <deck>                   (re)write placeholder tiles + faces
 
 `--scale` is a NEAREST-neighbour zoom applied ONLY to the preview contact sheet,
 so the tiny pixel-art cards are legible on screen. The individual PNGs are
-always written at native resolution; nothing in the deck depends on it.
+always written at native resolution; nothing in the deck depends on it. For
+print, set `print_scale` in deck.yaml — that is deck identity, not a flag.
 """
 from __future__ import annotations
 import argparse

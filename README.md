@@ -12,13 +12,15 @@ src/arcana/
   tileio.py      RGB import, ASCII format, format dispatch
   compose.py     border assembly + structural checks
   layout.py      pip arrangement algorithms (square, diamond, ordinaries…)
-  mural.py       major-arcana murals (layer loader, import seam, opt-in probe)
-  seed.py        placeholder-tile generators (procedural + ASCII pips)
+  mural.py       face-card murals (keys, loader, safe-area fitting, ground)
+  pixelate.py    an RWS scan -> a generation seed (crop, de-screen, decimate)
+  retro.py       Retro Diffusion client + scan fetch (stdlib urllib)
+  seed.py        placeholder generators (tiles, pips, and a face per key)
   deck.py        deck resolution (config + artifacts paths)
   cli.py         thin `arcana` CLI
 decks/
-  configs/<name>/   palette.yaml + deck.yaml + murals/  (committed)
-  artifacts/<name>/ generated tiles + renders           (git-ignored)
+  configs/<name>/   palette.yaml + deck.yaml + generation.yaml + murals/
+  artifacts/<name>/ generated tiles, seeds, candidates, renders (git-ignored)
 tests/
   test_deck.py   regression tests, tiles seeded into tmp
 ```
@@ -33,9 +35,23 @@ placeholder tiles and PNGs under `decks/artifacts/<name>/`, which is git-ignored
 uv sync
 uv run arcana generate vaporwave-rws     # per-suit borders
 uv run arcana cards vaporwave-rws        # minor-arcana pip cards (ranks 1-10)
-uv run arcana majors vaporwave-rws       # the 22 major arcana (mural tooling ready)
+uv run arcana majors vaporwave-rws       # the face cards (the 22 majors by default)
 uv run pytest
 ```
+
+Art for a face card takes **two commands and one decision**:
+
+```bash
+export RD_API_KEY=rdpk-...                              # your machine, never a config
+uv run arcana rd vaporwave-rws --face major_00          # fetches the RWS scan, generates
+#   ...look at the candidates, pick one...
+uv run arcana import-mural vaporwave-rws \
+    decks/artifacts/vaporwave-rws/rd/major_00_1.png --face major_00 --force
+```
+
+Choosing a candidate is the only step that needs a human, so it is the only one
+left: `rd` fetches the source scan itself, and `import-mural` renders the
+finished card (and its print copy) once it has written the layers.
 
 Everything is written under `decks/artifacts/<deck>/` (git-ignored).
 
@@ -59,7 +75,7 @@ Everything is written under `decks/artifacts/<deck>/` (git-ignored).
   (one card under every field design), [minor-arcana](docs/examples/minor-arcana.png)
   (the per-suit defaults across ranks 1–10, with numeral/title labels), and
   [major-arcana](docs/examples/major-arcana.png) (the 22 majors — frame and
-  label; mural art is pending).
+  label; predates the generation path, so the art windows are bare).
 
   Both `cards` and `majors` label each card with a **bitmap font** (`arcana.text`):
   a rank/roman numeral and the card name, chosen by plaintext (`arcana.data`),
@@ -72,24 +88,49 @@ Everything is written under `decks/artifacts/<deck>/` (git-ignored).
     `--medallion-scale SIZE`): a scaled suit cartouche, an abstract suit-colored
     lozenge, or none (the border ornament then continues through the space). Size
     takes a keyword (`full`/`large`/`small`/`smaller`/`tiny`) or a number.
-- `arcana majors <deck>` renders the 22 major arcana: frame, field, and label.
-  When a deck ships mural art — a **mural** is an image laid on the field —
-  it is composited into the art window automatically. Murals are per-bank
-  ASCII layers under `decks/configs/<deck>/murals/`, authored in the same
-  local index space as any tile — so a palette swap recolors them; their
-  presence is the switch (all-or-nothing: a partial set fails loudly), and
-  `--no-murals` renders bare for comparison. No deck currently commits mural
-  art, so the majors render the bare field.
-- `arcana import-mural <deck> <png> --major N` maps pixel art into the glyph
-  representation: it quantizes any art-window-sized RGB image to the deck's
-  14 drawable colors (`--force` snaps off-palette pixels) and writes the
-  per-bank ASCII layer files. `arcana export-mural` is the exact inverse —
-  it renders a mural's art window back to an RGB PNG (for external editors,
-  or as a generation init image). The round trip is lossless, which is how
-  externally generated pixel art (e.g. Retro Diffusion) enters the deck.
-- `arcana seed <deck>` just (re)writes the placeholder tiles.
+- `arcana majors <deck>` renders the deck's **face cards** — the cards whose art
+  is an authored image rather than an algorithmic pip lattice. Face cards are
+  keyed by a free-form string, so the same path serves the 22 tarot majors
+  (`major_00`…, the default), a traditional deck's courts
+  (`court_cups_queen`), and a game's one-off specials (`wizard`); a deck
+  declares its own set with `faces:` in `deck.yaml`. `--face KEY` renders one.
+
+  A **mural** is the image laid on the field: per-bank ASCII layers under
+  `decks/configs/<deck>/murals/`, in the same local index space as any tile, so
+  a palette swap recolors them. Committed art always wins; a face without it
+  falls back to the placeholder `arcana seed` writes, so **the deck always
+  renders and art can land one card at a time**. `--strict` is the print gate —
+  it fails, naming every face still on a placeholder. `--no-murals` renders the
+  bare field for comparison.
+- `arcana rd <deck> --face KEY` generates candidate art. With no `--init` it
+  **fetches the face's public-domain RWS scan** (the Wikimedia Commons path is
+  computable from the key), crops the card's own title band and paper margin
+  off, and fits it to the visible safe area as the generation seed. Candidates
+  land in `decks/artifacts/<deck>/rd/` for a human to pick from — nothing is
+  imported automatically.
+
+  The model is there for **semantic colour**, not pixelation: it knows a sky is
+  a sky and should take the field bank, where a nearest-colour mapping only
+  knows the sky is warm and drops it in the flesh ramp. Style, strength and
+  candidate count live in `generation.yaml` as deck identity, alongside the
+  per-face prompts. `RD_API_KEY` is read from the environment only.
+- `arcana import-mural <deck> <png> --face KEY` maps pixel art into the glyph
+  representation: it quantizes to the deck's 14 drawable colors (`--force` snaps
+  off-palette pixels), seats the art inside the frame-safe rectangle by scaling
+  (`--bleed` fills the whole window instead), writes the per-bank ASCII layers,
+  and renders the finished card. It prints a colour histogram — the charter
+  check — and warns when a bank went unused or when the margin carries the line
+  work of a generator-drawn frame. `arcana export-mural` is the exact inverse,
+  and the round trip is lossless.
+- `arcana seed <deck>` (re)writes the placeholder tiles and a placeholder mural
+  per face.
 - `--scale N` is a NEAREST zoom applied only to the preview contact sheet so the
-  tiny pixel-art cards are legible; individual PNGs are always native resolution.
+  tiny pixel-art cards are legible; individual PNGs are always native
+  resolution. For print, set `print_scale` in `deck.yaml`: `majors` then also
+  writes cards under `print/` at that integer multiple with the physical size in
+  the PNG's DPI metadata (6× is 960×1656, ≈349 DPI at a true 2.75×4.75in card).
+  Integer NEAREST is the only correct scaling — a fractional ratio breaks the
+  pixel grid the deck is made of.
 
 ## Authoring a tile
 
