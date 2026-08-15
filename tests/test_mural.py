@@ -129,17 +129,31 @@ def test_image_respects_field_insets(ctx, fixture_image):
 
 
 # --- compose contract ---------------------------------------------------
-def test_no_image_reproduces_bare_field(ctx):
-    """`image=None` (and `--no-murals`) must stay byte-identical to the
-    pre-mural output — decks without murals render exactly as before. This is
-    the default today: no deck commits mural art."""
+def test_no_image_is_the_bare_full_bleed_field(ctx):
+    """`image=None` (and `--no-murals`) is exactly the field and nothing
+    else — this is the default today: no deck commits mural art. The field
+    runs FULL-BLEED at the SAME depth on all four sides: from `geo.margin` in,
+    under the frame band's repeating ornament top and bottom just like the
+    sides always were, so the title floats on the field, never on bare paper.
+    The asymmetry this guards: a field starting at the art top ends before the
+    top band while still running under the side bands."""
     pal, geo, cfg, els = ctx
     fname = field.field_for_suit(cfg, "majors", None)
     m = compose.build_mural(pal, geo, els, fname)
-    expected = np.zeros((geo.card_h, geo.card_w), np.uint8)
     ox, oy = geo.art_origin
-    compose.paste(expected, pal.bind(compose.build_field(fname, geo), "field"), ox, oy)
+    g = geo.margin
+    expected = np.zeros((geo.card_h, geo.card_w), np.uint8)
+    compose.paste(expected,
+                  pal.bind(compose.build_field(fname, geo, full_bleed=True),
+                           "field"), g, g)
     assert np.array_equal(m, expected)
+    assert (m[:g, :] == 0).all() and (m[geo.card_h - g:, :] == 0).all()
+    assert (m[:, :g] == 0).all() and (m[:, geo.card_w - g:] == 0).all()
+    # the same field depth under the band on every side...
+    assert (m[g, ox:ox + geo.art_w] != 0).all()          # under the top band
+    assert (m[geo.card_h - g - 1, ox:ox + geo.art_w] != 0).all()  # bottom band
+    title_row = oy + geo.art_h + 1                       # inside the title band
+    assert (m[title_row, ox:ox + geo.art_w] != 0).all()  # field runs under it
 
 
 def test_mural_only_touches_art_window(ctx, fixture_image):

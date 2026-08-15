@@ -361,9 +361,14 @@ contract that art must meet when it lands.
   error naming the expected stem when `required`.
 - **Composition** — `build_mural` = field background + `image.bind` overlay;
   the image's transparent pixels show the field, so a card's "sky" recolors
-  with the palette. `image=None` reproduces the pre-mural bare field
-  byte-for-byte. A `field` LAYER is still legal (night skies, pools) so dark
-  strata stay in the background's hue family.
+  with the palette. The field runs **full-bleed** (`compose.content_field`,
+  shared by minors and majors): the card's inner rectangle from `geo.margin`
+  in on every side — the same depth under the frame band on all four sides,
+  so the band's repeating ornament sits on field everywhere and the title
+  floats on the field, never on bare paper (the frame's rules and their
+  paper gap ring it from outside). `image=None` is the bare full-bleed
+  field. A `field` LAYER is still legal (night skies, pools) so dark strata
+  stay in the background's hue family.
 - **Opt-in is presence, all-or-nothing** — no config knob: a deck with no
   `murals/` layers renders the bare field; once ANY major has layers, every
   major is required, so a partial art set fails loudly naming the missing

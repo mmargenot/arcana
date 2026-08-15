@@ -67,14 +67,27 @@ def insets(geo: Geometry, margin: int = 8) -> tuple[int, int]:
 
 
 def build(name: str, geo: Geometry, ground: int = LIGHT, device: int = MID,
-          margin: int = 8) -> np.ndarray:
-    """A field as a local-index matrix shape (art_h, art_w), fully opaque: the
-    named design in an inner rectangle, ringed by a plain `ground` margin."""
+          margin: int = 8, *, full_bleed: bool = False) -> np.ndarray:
+    """A field as a fully-opaque local-index matrix: the named design in an
+    inner rectangle, ringed by a plain `ground` margin.
+
+    Default shape is the art window (art_h, art_w). `full_bleed` is the card
+    CONTENT extent (`compose.content_field`): the card's inner rectangle from
+    `geo.margin` in on every side — the depth the art window always ran under
+    the frame band horizontally, now on all four sides, so the band's
+    repeating ornament sits on field everywhere and the title band is field,
+    not paper. The frame's rules (and their paper gap) lie outside this rect
+    and paint over whatever they ring. The design inset is then EVEN by
+    construction — `margin` past the frame band's inner edge all around."""
     if name not in _REGISTRY:
         raise KeyError(f"unknown field design {name!r}; have {names()}")
-    h, w = geo.art_h, geo.art_w
+    if full_bleed:
+        h, w = geo.card_h - 2 * geo.margin, geo.art_w
+        ix = iy = margin + (geo.corner - geo.margin)
+    else:
+        h, w = geo.art_h, geo.art_w
+        ix, iy = insets(geo, margin)
     out = np.full((h, w), ground, np.uint8)
-    ix, iy = insets(geo, margin)
     ih, iw = h - 2 * iy, w - 2 * ix
     if ih > 0 and iw > 0:
         out[iy:iy + ih, ix:ix + iw] = _REGISTRY[name](ih, iw, ground, device)
