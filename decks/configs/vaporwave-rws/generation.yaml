@@ -31,7 +31,14 @@ candidates: 4
 # style takes the input image as its subject, so without one the service has
 # nothing to work from and refuses the call — generating from the prompt alone
 # is a different job and names its own style.
-seedless_style: rd_plus__item_sheet
+#
+# It must be a SINGLE-OBJECT style. `item_sheet` was the obvious-looking pick and
+# is exactly wrong: it means what it says and returns a grid of objects. The
+# styles that return one centred thing are rd_fast__game_asset and
+# rd_plus__ui_element (both 64-384px, so they fit the 112x208 window);
+# rd_plus__skill_icon is the truest icon style but caps at 192px, under our
+# height, and rd_pro__inventory_items is 256x256 only.
+seedless_style: rd_fast__game_asset
 
 # THE GROUND. A mural is an image laid on a field, and the field is what paints
 # the card's background — so if the art carries its own opaque sky, the two

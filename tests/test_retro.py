@@ -221,3 +221,14 @@ def test_seedless_generation_switches_to_a_generative_style(ctx):
     assert bare["prompt_style"] == gen.seedless_style
     assert gen.seedless_style.startswith(("rd_plus__", "rd_fast__"))
     assert "input_image" not in bare and "strength" not in bare
+
+
+def test_seedless_style_returns_one_object_not_a_sheet(ctx):
+    """`item_sheet` and `character_turnaround` mean what they say and return a
+    grid. A face card is one emblem, so the seedless style has to be one of the
+    single-object styles — and one whose size range covers the art window
+    (skill_icon caps at 192px, under our 208)."""
+    _, _, gen = ctx
+    assert gen.seedless_style in ("rd_fast__game_asset", "rd_plus__ui_element")
+    assert "sheet" not in gen.seedless_style
+    assert "turnaround" not in gen.seedless_style
