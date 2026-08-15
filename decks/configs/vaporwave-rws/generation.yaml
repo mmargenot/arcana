@@ -64,5 +64,19 @@ knockout_ground: false
 # the picture area so RWS's own printed frame and title band never reach the
 # model, and `import-mural` warns when the result puts heavy line work in the
 # margin the deck's frame will cover.
+# Style, appended to every subject below. Written ONCE because it is the deck's
+# look, not the card's — 22 prompts each carrying their own style adjectives is
+# how 22 cards stop matching. Push toward a chunkier read: flat fills, bold
+# outlines, and few tones per shape all reduce the fussy dithered detail a model
+# reaches for by default.
+#
+# Still no "pixel art" here: the style handles rendering, and naming it tends to
+# produce a picture *of* pixel art. The stronger lever for chunkiness is not
+# words at all — it is generating on a smaller grid and scaling up by an integer
+# — so if this reads too fine, halve the generation size before adding adjectives.
+style_suffix: >-
+  flat blocks of solid colour, heavy dark outlines, minimal shading,
+  simplified shapes, high contrast
+
 prompts:
   major_00: the fool, a traveller at a cliff edge with a white dog and a rose

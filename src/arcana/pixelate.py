@@ -112,6 +112,50 @@ def find_picture(rgb: np.ndarray) -> tuple[int, int, int, int]:
     return x0, y0, x1, y1
 
 
+# Where RWS prints a major's roman numeral: centred, just under the top rule.
+# Generous enough for the widest numeral (XVIII) on any of the 22.
+NUMERAL_BOX = (0.33, 0.015, 0.67, 0.085)
+
+
+def erase_numeral(rgb: np.ndarray, box: tuple[float, float, float, float] = NUMERAL_BOX,
+                  flat: float = 18.0) -> np.ndarray:
+    """Paint out the numeral RWS prints inside the picture area.
+
+    The card carries its own rank -- a `0` over the Fool, `XVIII` over the Moon --
+    and `arcana` renders the rank itself from `arcana.data`. Left in the seed it
+    survives generation (at strength 0.35 the model preserves it happily) and the
+    card ends up with two numerals in different typefaces.
+
+    Fills with the median of a ring just outside the box, so on flat sky the
+    patch is invisible. GUARDED: only fills when that ring is actually flat.
+    Where a card puts art behind its numeral the fill would smear it, and a
+    stray numeral is a smaller problem than a smeared scene -- so in that case
+    the numeral stays and the prompt is the remaining defence.
+    """
+    h, w, _ = rgb.shape
+    x0, y0, x1, y1 = (int(box[0] * w), int(box[1] * h), int(box[2] * w), int(box[3] * h))
+    if x1 <= x0 or y1 <= y0:
+        return rgb
+    pad = max(4, (y1 - y0) // 2)
+    ring = rgb[max(0, y0 - pad):min(h, y1 + pad), max(0, x0 - pad):min(w, x1 + pad)]
+    inner = np.zeros(ring.shape[:2], bool)
+    inner[pad:pad + (y1 - y0), pad:pad + (x1 - x0)] = True
+    around = ring[~inner]
+    if around.size == 0:
+        return rgb
+    ground = np.median(around, axis=0)
+    # "Is this ground?" asked as AGREEMENT, not variance. The Fool's numeral sits
+    # on flat sky that the sun's rays cross, and a few dark lines wreck a
+    # standard deviation while leaving the ground unambiguous -- the first
+    # version of this guard bailed out on every card with rays. What matters is
+    # whether MOST of the ring is one colour.
+    if (np.abs(around - ground).max(1) <= flat).mean() < 0.6:
+        return rgb                      # art behind the numeral: leave it alone
+    out = rgb.copy()
+    out[y0:y1, x0:x1] = ground
+    return out
+
+
 def crop_to_aspect(rgb: np.ndarray, w: int, h: int) -> np.ndarray:
     """Centre-crop to the target aspect, keeping as much art as possible.
 
@@ -191,16 +235,20 @@ def decimate(rgb: np.ndarray, w: int, h: int) -> np.ndarray:
 
 def pixelate(src: str | Path, w: int, h: int, *,
              crop: tuple[int, int, int, int] | None = None,
-             descreen_size: int = 3, strength: float = 0.9) -> np.ndarray:
+             descreen_size: int = 3, strength: float = 0.9,
+             numeral: bool = True) -> np.ndarray:
     """A scan -> an (h, w, 3) RGB array on the art-window grid.
 
     `crop` overrides `find_picture` for a scan that is already trimmed, or one
-    whose frame the rule detector cannot see."""
+    whose frame the rule detector cannot see. `numeral=False` keeps RWS's
+    printed rank instead of painting it out."""
     rgb = np.asarray(Image.open(src).convert("RGB")).astype(np.float32)
     x0, y0, x1, y1 = crop if crop else find_picture(rgb)
     rgb = rgb[y0:y1, x0:x1]
     if rgb.size == 0:
         raise ValueError(f"empty crop {(x0, y0, x1, y1)}")
+    if numeral:
+        rgb = erase_numeral(rgb)
     rgb = crop_to_aspect(rgb, w, h)
     rgb = descreen(rgb, descreen_size)
     k = max(1, min(rgb.shape[0] // h, rgb.shape[1] // w))

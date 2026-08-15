@@ -445,3 +445,22 @@ def test_antialiasing_rejected(tmp_path, ctx):
     Image.fromarray(rgba, "RGBA").save(tmp_path / "aa.png")
     with pytest.raises(AssetError, match="off the authoring palette"):
         tileio.read_rgb(tmp_path / "aa.png")
+
+
+def test_seed_erases_the_printed_numeral():
+    """RWS prints a rank inside the picture — `0` over the Fool, `XVIII` over
+    the Moon — and arcana renders its own from `arcana.data`. Left in the seed
+    it survives generation and the card carries two numerals in two typefaces.
+    Erasing is GUARDED: where art sits behind the numeral, filling would smear
+    the scene, so the numeral stays and the prompt is the remaining defence."""
+    import numpy as np
+    from arcana.pixelate import erase_numeral, NUMERAL_BOX
+
+    sky = np.full((400, 300, 3), 200.0)
+    h, w, _ = sky.shape
+    x0, y0 = int(NUMERAL_BOX[0] * w) + 2, int(NUMERAL_BOX[1] * h) + 2
+    sky[y0:y0 + 6, x0:x0 + 6] = 20.0                 # the numeral, on flat ground
+    assert erase_numeral(sky).max() == 200.0         # gone
+
+    busy = np.random.default_rng(0).uniform(0, 255, (400, 300, 3))
+    assert np.array_equal(erase_numeral(busy), busy)  # art behind it: untouched

@@ -140,10 +140,23 @@ def test_strength_holds_the_composition(ctx):
 def test_prompts_are_anchors_not_descriptions(ctx):
     """With a pixelate style the seed is the subject; a long narrative prompt
     invites the invention this whole path is trying to avoid -- extra props, a
-    drawn frame, a vignette."""
+    drawn frame, a vignette. The cap is on the SUBJECT only: style adjectives
+    live in the deck-wide suffix, so lengthening the look does not lengthen
+    every card's prompt."""
     _, _, gen = ctx
     for key, text in gen.prompts.items():
         assert len(text.split()) <= 20, f"{key}: {len(text.split())} words"
+
+
+def test_style_suffix_is_shared_not_per_card(ctx):
+    """22 prompts each carrying their own style adjectives is how 22 cards stop
+    matching. The look is written once and appended to every subject."""
+    _, _, gen = ctx
+    assert gen.style_suffix, "the deck states a look"
+    for key in gen.prompts:
+        assert gen.prompt_for(key).endswith(gen.style_suffix), key
+        assert gen.prompts[key] in gen.prompt_for(key), key
+    assert "pixel" not in gen.style_suffix.lower()
 
 
 # --- transparent ground --------------------------------------------------

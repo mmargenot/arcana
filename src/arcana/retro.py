@@ -70,6 +70,7 @@ DEFAULTS = {
     "candidates": 4,
     "remove_bg": False,
     "knockout_ground": False,
+    "style_suffix": "",
 }
 
 
@@ -90,6 +91,7 @@ class Generation:
     candidates: int
     remove_bg: bool
     knockout_ground: bool
+    style_suffix: str
     prompts: dict[str, str]
 
     @classmethod
@@ -105,15 +107,24 @@ class Generation:
                    candidates=int(d["candidates"]),
                    remove_bg=bool(d["remove_bg"]),
                    knockout_ground=bool(d["knockout_ground"]),
+                   style_suffix=str(d["style_suffix"]).strip(),
                    prompts=dict(d.get("prompts") or {}))
 
     def prompt_for(self, key: str) -> str:
+        """A face's subject, plus the deck's shared style suffix.
+
+        The split is the point. The SUBJECT is per card and stays terse -- with
+        a pixelate style the seed is the subject, so a long description only
+        invites invention. The STYLE is per deck and written once, which is what
+        keeps 22 cards looking like one deck instead of 22 prompts drifting
+        apart."""
         try:
-            return self.prompts[key]
+            subject = self.prompts[key]
         except KeyError:
             raise AssetError(
                 f"no prompt for face {key!r}. Add it under `prompts:` in the "
                 f"deck's generation.yaml, or pass --prompt for a one-off.")
+        return f"{subject}, {self.style_suffix}" if self.style_suffix else subject
 
 
 def palette_png(pal: Palette) -> bytes:
