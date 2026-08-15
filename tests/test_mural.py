@@ -419,3 +419,31 @@ def test_fit_safe_leaves_conforming_art_untouched(ctx, fixture_image):
     baked[baked == 0] = 3 + 3 * BANKS.index("field") + 1
     assert mural.fits_safe(baked, geo)
     assert np.array_equal(mural.fit_safe(baked, geo), baked)
+
+
+def test_knockout_ground_spares_the_figure(ctx):
+    """The 69.9% bug, pinned. A naive flood from the border follows LINE inward
+    — the figure's outline is contiguous with the border's line pixels — and
+    dissolves the figure. Ground goes; ink stays."""
+    _, geo, _, _ = ctx
+    sky = 3 + 3 * BANKS.index("field") + 2
+    g = np.full((geo.art_h, geo.art_w), sky, np.uint8)
+    g[40:180, 30:110] = LINE                      # a figure, touching nothing
+    g[0, :] = LINE                                # ink ON the border, joined to it
+    g[0:41, 60:62] = LINE                         # ...and contiguous with the figure
+    out = mural.knockout_ground(g)
+    assert (out == 0).sum() > 0.4 * g.size        # the sky went
+    assert (out[40:180, 30:110] == LINE).all()    # the figure did not
+
+
+def test_knockout_ground_ignores_small_edge_regions(ctx):
+    """Only a LARGE edge-touching region is ground. A shadow or a staff that
+    happens to reach the border is composition, not sky."""
+    _, geo, _, _ = ctx
+    sky = 3 + 3 * BANKS.index("field") + 2
+    speck = 3 + 3 * BANKS.index("motif") + 1
+    g = np.full((geo.art_h, geo.art_w), sky, np.uint8)
+    g[0:6, 0:6] = speck                           # tiny, touches the corner
+    out = mural.knockout_ground(g)
+    assert (out[0:6, 0:6] == speck).all()
+    assert (out[100, 70] == 0)                    # the sky still went

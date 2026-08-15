@@ -53,7 +53,7 @@ def test_prompt_expansion_is_always_bypassed(ctx):
     forest scene with a deer instead of the figure; across 22 cards that is
     fatal. There is deliberately no way to turn this off."""
     assert payload(ctx)["bypass_prompt_expansion"] is True
-    assert payload(ctx, seed=1, check_cost=True)["bypass_prompt_expansion"] is True
+    assert payload(ctx, seed=1, init=b"x")["bypass_prompt_expansion"] is True
 
 
 def test_output_is_never_upscaled(ctx):
@@ -144,3 +144,27 @@ def test_prompts_are_anchors_not_descriptions(ctx):
     _, _, gen = ctx
     for key, text in gen.prompts.items():
         assert len(text.split()) <= 20, f"{key}: {len(text.split())} words"
+
+
+# --- transparent ground --------------------------------------------------
+def test_remove_bg_is_opt_in_and_reaches_the_payload(ctx):
+    """A transparent ground is what makes the mural's sky and the card's field
+    the same pixels, so no seam can exist between them. It is opt-in because a
+    scene may want an opaque ground on purpose -- a night sky painted in
+    field-bank tones."""
+    import dataclasses
+    _, geo, gen = ctx
+    assert "remove_bg" not in retro.build_payload(
+        dataclasses.replace(gen, remove_bg=False), geo, ctx[0], prompt="x")
+    assert retro.build_payload(
+        dataclasses.replace(gen, remove_bg=True), geo, ctx[0],
+        prompt="x")["remove_bg"] is True
+
+
+def test_scan_url_is_computed_not_looked_up():
+    """Commons stores a file under the first one and two hex digits of the md5
+    of its name, so `arcana rd` can fetch a seed itself rather than failing
+    with instructions to go run curl. Pinned against the verified live path."""
+    assert retro.scan_url("major_00").endswith("/9/90/RWS_Tarot_00_Fool.jpg")
+    assert len(retro.RWS_FILES) == 22
+    assert retro.scan_url("court_cups_queen") is None   # unknown face, not a crash

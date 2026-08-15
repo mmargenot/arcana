@@ -226,6 +226,51 @@ def fit_safe(m: np.ndarray, geo: Geometry) -> np.ndarray:
     return out
 
 
+def knockout_ground(m: np.ndarray, *, min_frac: float = 0.05) -> np.ndarray:
+    """Map the art's own background to transparent, so the card's FIELD shows
+    through it instead.
+
+    This is the composition model this module already describes -- "an image
+    laid on a field", where the image's transparent pixels show the field, so a
+    card's sky is the field colour and recolours with the palette. Imported art
+    could never honour it: `quantize_rgb_global` only maps real alpha to index
+    0, and a generated PNG is opaque everywhere, so the art painted its own sky
+    and it met the field mat at a visible rectangle. Knocking the ground out
+    makes the seam impossible -- the sky IS the mat, one set of pixels -- and
+    the sky then inherits whatever `field_designs` says.
+
+    Background is found by flooding inward from the border, with two guards
+    that are measured, not tasteful:
+
+      * NEVER line or paper. On the reference Fool 42.5% of the border pixels
+        are `line`, and the figure's outline is contiguous with them, so an
+        unguarded flood walks the outline inward and dissolves the figure --
+        69.9% of the window against 43.3% with the guard, which is the sky.
+      * Only components covering at least `min_frac` of the window. A sky is
+        large; a shadow touching the edge is not. 5% and 10% give identical
+        results here, so the threshold sits on a plateau rather than a cliff.
+
+    Deliberately not automatic: a scene that wants dark strata -- a night sky, a
+    pool -- paints them in field-bank tones on purpose, and this would erase
+    them. The deck opts in.
+    """
+    from scipy import ndimage as nd
+    h, w = m.shape
+    border = np.zeros((h, w), bool)
+    border[0] = border[-1] = True
+    border[:, 0] = border[:, -1] = True
+    out = m.copy()
+    for slot in np.unique(m[border]):
+        if slot in (0, LINE, PAPER):
+            continue
+        lab, _ = nd.label(m == slot)
+        for comp_id in set(np.unique(lab[border]).tolist()) - {0}:
+            comp = lab == comp_id
+            if comp.mean() >= min_frac:
+                out[comp] = 0
+    return out
+
+
 def margin_ink(m: np.ndarray, geo: Geometry) -> float:
     """Fraction of the covered margin that is LINE, as a border-cruft alarm.
 

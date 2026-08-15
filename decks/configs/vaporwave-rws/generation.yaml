@@ -27,6 +27,26 @@ strength: 0.35
 
 candidates: 4
 
+# THE GROUND. A mural is an image laid on a field, and the field is what paints
+# the card's background — so if the art carries its own opaque sky, the two
+# backgrounds meet at a visible rectangle. Make the ground transparent and the
+# seam cannot exist: the sky IS the mat, one set of pixels, and it inherits
+# whatever `field_designs` says.
+#
+# `remove_bg` asks the service for a transparent background (free, first-class,
+# and quantize already maps alpha to index 0). It is built for sprites, so on a
+# full scene it may take the mountains with the sky — check one generation.
+#
+# `knockout_ground` is the local fallback: flood the art's own ground to
+# transparent at import, never touching line or paper (the figure's outline runs
+# to the border, and an unguarded flood dissolves the figure) and only for
+# regions large enough to be sky.
+#
+# Both default off, because an opaque ground is sometimes deliberate — a night
+# sky or a pool painted in field-bank tones is background that should stay.
+remove_bg: false
+knockout_ground: true
+
 # Subject only, and TERSE. With a pixelate style the input image is the subject;
 # the prompt is an anchor that stops drift, not a description to render. A long
 # narrative prompt invites invention -- extra props, a drawn frame, a vignette.

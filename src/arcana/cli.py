@@ -25,7 +25,6 @@ always written at native resolution; nothing in the deck depends on it.
 """
 from __future__ import annotations
 import argparse
-import json
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -57,6 +56,33 @@ def _resolve_scale(value) -> float:
     except ValueError:
         raise SystemExit(f"unknown medallion size {value!r}; use a number or one "
                          f"of {', '.join(MEDALLION_SIZES)}")
+
+
+CARD_INCHES = (2.75, 4.75)      # a true tarot card; the deck's 1:1.725 matches
+
+
+def _write_print(rgb: np.ndarray, cfg: dict, geo, dest: Path) -> Path | None:
+    """Write a print-resolution copy of a card, when the deck asks for one.
+
+    `print_scale` in deck.yaml, not a CLI flag: a deck prints at one resolution,
+    so it is deck identity, and typing it per card 22 times over would be the
+    same tax the rest of this pipeline just shed.
+
+    INTEGER NEAREST only. At 160x276 a card is 58 DPI at true size, so it must
+    be scaled for print — and any fractional ratio or smooth filter destroys the
+    pixel grid, which is the entire aesthetic. 6x is 960x1656, about 349 DPI;
+    5x is about 291, just under the 300 most printers want. The physical size
+    goes into the PNG's pDPI metadata so a shop sees 2.75x4.75in rather than
+    guessing from the pixel count."""
+    scale = cfg.get("print_scale")
+    if not scale:
+        return None
+    scale = int(scale)
+    img = Image.fromarray(rgb)
+    img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img.save(dest, dpi=(img.width / CARD_INCHES[0], img.height / CARD_INCHES[1]))
+    return dest
 
 
 def cmd_seed(name: str, configs_root: Path, artifacts_root: Path) -> Path:
@@ -242,6 +268,7 @@ def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
                              image=image)
         rgb = pal.for_suit("majors").render(m)
         Image.fromarray(rgb).save(out / f"{key}.png")
+        _write_print(rgb, cfg, geo, out / "print" / f"{key}.png")
         r, c = divmod(i, cols)
         y, x = r * (H + gap), c * (W + gap)
         sheet[y:y + H, x:x + W] = rgb
@@ -275,6 +302,12 @@ def cmd_import_mural(name: str, png: Path, face: str,
             f"{png.name} is {g.shape[1]}x{g.shape[0]}; expected the art window "
             f"{geo.art_w}x{geo.art_h} or the visible safe area {sw}x{sh} "
             f"(what `arcana rd` generates)")
+    from arcana.retro import Generation
+    gen = Generation.load(config_dir(name, configs_root) / "generation.yaml")
+    if gen.knockout_ground:
+        # the art's own sky becomes transparent so the card's field shows there
+        # instead — no seam where the two backgrounds would otherwise meet
+        g = mural.knockout_ground(g)
     if not bleed:
         g = mural.fit_safe(g, geo)
     dest = out or config_dir(name, configs_root) / "murals"
@@ -304,6 +337,13 @@ def cmd_import_mural(name: str, png: Path, face: str,
         print(f"  ! {ink:.0%} of the covered margin is line work — the generator "
               f"may have drawn its own frame, which the deck's frame will "
               f"collide with rather than cover")
+    # Render the card immediately. There is no workflow where you import art and
+    # deliberately do not look at the result, so making it a second command just
+    # charges the same tax 22 times. `--out` means a probe into a scratch dir,
+    # not the deck, so there is nothing to render then.
+    if out is None:
+        cmd_majors(name, 2, False, None, None, False,
+                   configs_root, artifacts_root, face=face)
     return dest
 
 
@@ -344,17 +384,17 @@ def cmd_export_mural(name: str, face: str, scale: int,
 
 
 def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
-           init: Path | None, check_cost: bool,
+           init: Path | None,
            configs_root: Path, artifacts_root: Path) -> Path:
     """Generate candidate art for one face and write it for review.
 
-    The seed image is the point: `--init` takes an RWS scan (any size — it is
-    cropped and fitted to the art window) or an already-art-window-sized PNG,
-    used as-is. With no `--init`, the face's current art is used, which on a
-    fresh deck is its seeded placeholder.
+    The seed image is the point. With no `--init` the deck's source scan is
+    FETCHED — the Commons path is computable from the face key, so there is no
+    reason to make you run curl first — then cropped and fitted. `--init` takes
+    a scan you supply at any size, or an already-fitted PNG used as-is.
 
-    Nothing is imported automatically. Candidates land in the artifacts dir so
-    a human picks one; `import-mural` is the deliberate second step."""
+    Nothing is imported automatically: choosing a candidate is the one step in
+    this pipeline that needs a human, so `import-mural` stays deliberate."""
     from arcana import retro
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
@@ -367,46 +407,38 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
     except AssetError as e:
         raise SystemExit(str(e))
 
-    init_bytes = None
     out = render_dir(name, artifacts_root) / "rd"
     out.mkdir(parents=True, exist_ok=True)
-    if init is not None:
-        from arcana.pixelate import pixelate
-        if not init.exists():
-            raise SystemExit(
-                f"no seed image at {init}. Source scans are inputs, not "
-                f"deliverables, so they live under the git-ignored artifacts "
-                f"dir and are not in the repo. For the RWS majors:\n"
-                f"  mkdir -p {init.parent}\n"
-                f"  curl -L -o {init} \\\n"
-                f"    https://upload.wikimedia.org/wikipedia/commons/9/90/"
-                f"RWS_Tarot_00_Fool.jpg")
-        sw, sh = mural.safe_size(geo)
-        img = Image.open(init)
-        if img.size != (sw, sh):
-            print(f"preparing seed: {init.name} {img.width}x{img.height} -> {sw}x{sh}")
-            img = Image.fromarray(pixelate(init, sw, sh))
-        seed_png = out / f"{face}.seed.png"
-        img.convert("RGB").save(seed_png)
-        init_bytes = seed_png.read_bytes()
-        print(f"seed -> {seed_png}")
-    else:
-        init_bytes = cmd_export_mural(name, face, 1, out / f"{face}.seed.png",
-                                      configs_root, artifacts_root).read_bytes()
+    if init is None:
+        try:
+            init = retro.fetch_scan(
+                face, render_dir(name, artifacts_root) / "scans" /
+                (retro.RWS_FILES.get(face) or f"{face}.jpg"))
+        except retro.GenerationError as e:
+            raise SystemExit(str(e))
+        print(f"source scan: {init}")
+    elif not init.exists():
+        raise SystemExit(f"no seed image at {init}")
+
+    from arcana.pixelate import pixelate
+    sw, sh = mural.safe_size(geo)
+    img = Image.open(init)
+    if img.size != (sw, sh):
+        print(f"preparing seed: {init.name} {img.width}x{img.height} -> {sw}x{sh}")
+        img = Image.fromarray(pixelate(init, sw, sh))
+    seed_png = out / f"{face}.seed.png"
+    img.convert("RGB").save(seed_png)
+    init_bytes = seed_png.read_bytes()
+    print(f"seed -> {seed_png}")
 
     payload = retro.build_payload(gen, geo, pal.for_suit("majors"), prompt=text,
-                                  seed=seed, init=init_bytes, check_cost=check_cost)
-    print(f"style {gen.style}  {geo.art_w}x{geo.art_h}  x{gen.candidates}  "
-          f"strength {gen.strength}  ~${retro.estimate_cost(gen, geo):.2f}")
-    if check_cost:
-        print(f'prompt: "{text}"')
+                                  seed=seed, init=init_bytes)
+    print(f"style {gen.style}  {sw}x{sh}  x{gen.candidates}  "
+          f"strength {gen.strength}")
     try:
         response = retro.request(payload)
     except retro.GenerationError as e:
         raise SystemExit(str(e))
-    if check_cost:
-        print(json.dumps(response, indent=2)[:800])
-        return out
     try:
         images = retro.decode_images(response)
     except retro.GenerationError as e:
@@ -498,15 +530,12 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("--face", required=True, metavar="KEY",
                     help="face key, e.g. major_00")
     rd.add_argument("--init", type=Path, metavar="PATH",
-                    help="seed image: an RWS scan (cropped and fitted automatically) "
-                         "or an art-window-sized PNG used as-is. "
-                         "Default: the face's current art or placeholder")
+                    help="seed image: a scan at any size (cropped and fitted) or an "
+                         "already-fitted PNG. Default: fetch the face's source scan")
     rd.add_argument("--prompt", metavar="TEXT",
                     help="one-off prompt, overriding generation.yaml")
     rd.add_argument("--seed", type=int, metavar="N",
                     help="generation seed, for reproducibility")
-    rd.add_argument("--check-cost", action="store_true",
-                    help="dry run: build and send the request without generating")
 
     s = sub.add_parser("seed", help="(re)write a deck's placeholder tiles")
     s.add_argument("deck")
@@ -536,7 +565,7 @@ def main(argv: list[str] | None = None) -> int:
                          args.out, args.configs_root, args.artifacts_root)
     elif args.command == "rd":
         cmd_rd(args.deck, args.face, args.seed, args.prompt, args.init,
-               args.check_cost, args.configs_root, args.artifacts_root)
+               args.configs_root, args.artifacts_root)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:

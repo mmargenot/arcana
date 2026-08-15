@@ -43,6 +43,7 @@ runs the call, not in a deck file or an environment variable box.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
@@ -67,6 +68,8 @@ DEFAULTS = {
     "style": "rd_plus__default",
     "strength": 0.6,
     "candidates": 4,
+    "remove_bg": False,
+    "knockout_ground": False,
 }
 
 
@@ -85,6 +88,8 @@ class Generation:
     style: str
     strength: float
     candidates: int
+    remove_bg: bool
+    knockout_ground: bool
     prompts: dict[str, str]
 
     @classmethod
@@ -98,6 +103,8 @@ class Generation:
             d.update(loaded)
         return cls(style=str(d["style"]), strength=float(d["strength"]),
                    candidates=int(d["candidates"]),
+                   remove_bg=bool(d["remove_bg"]),
+                   knockout_ground=bool(d["knockout_ground"]),
                    prompts=dict(d.get("prompts") or {}))
 
     def prompt_for(self, key: str) -> str:
@@ -127,8 +134,7 @@ def _b64(data: bytes) -> str:
 
 def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
                   prompt: str, seed: int | None = None,
-                  init: bytes | None = None,
-                  check_cost: bool = False) -> dict:
+                  init: bytes | None = None) -> dict:
     """The request body. Pure -- no network, no key -- so tests can assert the
     invariants without stubbing anything."""
     from arcana.mural import safe_size
@@ -148,8 +154,11 @@ def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
     if init is not None:
         payload["input_image"] = _b64(init)
         payload["strength"] = gen.strength
-    if check_cost:
-        payload["check_cost"] = True
+    if gen.remove_bg:
+        # transparent ground straight from the service: the card's field then
+        # shows through the sky, and `quantize_rgb_global` already maps alpha
+        # below 128 to index 0, so nothing downstream changes
+        payload["remove_bg"] = True
     return payload
 
 
@@ -168,6 +177,52 @@ def estimate_cost(gen: Generation, geo: Geometry) -> float:
     else:
         per = max(0.025, (px + 50_000) / 2_000_000)
     return per * gen.candidates
+
+
+COMMONS = "https://upload.wikimedia.org/wikipedia/commons"
+
+# Wikimedia Commons filenames for the majors, which are what the deck seeds
+# from. The 1909 Rider printing is public domain; these are the scans, not a
+# modern recolour (checked against the warm-cream paper the notes record).
+RWS_FILES: dict[str, str] = {
+    f"major_{i:02d}": f"RWS_Tarot_{i:02d}_{n}.jpg" for i, n in enumerate((
+        "Fool", "Magician", "High_Priestess", "Empress", "Emperor",
+        "Hierophant", "Lovers", "Chariot", "Strength", "Hermit",
+        "Wheel_of_Fortune", "Justice", "Hanged_Man", "Death", "Temperance",
+        "Devil", "Tower", "Star", "Moon", "Sun", "Judgement", "World"))
+}
+
+
+def scan_url(face: str) -> str | None:
+    """The Commons URL for a face's source scan, or None if we do not know one.
+
+    Commons stores a file under the first one and two hex digits of the md5 of
+    its name, so the path is COMPUTABLE -- no lookup, no API call. That is what
+    lets `arcana rd` fetch a scan itself instead of failing with instructions to
+    go run curl."""
+    fname = RWS_FILES.get(face)
+    if not fname:
+        return None
+    h = hashlib.md5(fname.encode()).hexdigest()
+    return f"{COMMONS}/{h[0]}/{h[:2]}/{fname}"
+
+
+def fetch_scan(face: str, dest: Path) -> Path:
+    """Download a face's source scan if it is not already on disk."""
+    if dest.exists():
+        return dest
+    url = scan_url(face)
+    if url is None:
+        raise GenerationError(
+            f"no known source scan for face {face!r} — pass --init with an "
+            f"image to seed from")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with urllib.request.urlopen(url, timeout=120) as r:
+            dest.write_bytes(r.read())
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        raise GenerationError(f"could not fetch {url}: {e}")
+    return dest
 
 
 def api_key() -> str:

@@ -18,6 +18,14 @@ geometry:
     numeral: 16             # above art
     title:   36             # below art
 
+# Print resolution, as an INTEGER multiple of the native card. Set it and
+# `arcana majors` also writes cards under `print/` with the physical size in the
+# PNG's DPI metadata. At 1x a card is 58 DPI at the true 2.75x4.75in, so print
+# needs scaling; only integer NEAREST is acceptable, because any fractional
+# ratio breaks the pixel grid this whole deck is made of. 6x = 960x1656 ~ 349
+# DPI; 5x ~ 291, just under what most printers want. Omit to skip print output.
+print_scale: 6
+
 border:
   corner: 16                # corner tile is 16x16; also the band thickness
   edge:   8                 # repeating edge tile run length
