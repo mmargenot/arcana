@@ -369,3 +369,21 @@ def test_import_clears_stale_layers(ctx, cli_configs_root, tmp_path):
     assert rc == 0
     assert not (dest / f"{s}.motif.txt").exists()
     assert (dest / f"{s}.field.txt").exists()
+
+
+def test_margin_ink_flags_a_drawn_frame(ctx):
+    """Border cruft cannot be prompted away (the API ignores `negative`), so
+    import warns instead. Background in the covered margin is normal; a RING
+    of line work there means the generator drew its own frame, which will
+    collide with the deck's rather than sit under it."""
+    _, geo, _, _ = ctx
+    from arcana import field
+    ix, iy = field.insets(geo)
+    clean = np.zeros((geo.art_h, geo.art_w), np.uint8)
+    clean[iy:-iy, ix:-ix] = LINE                      # art fills the safe area
+    assert mural.margin_ink(clean, geo) == 0.0
+
+    framed = np.zeros((geo.art_h, geo.art_w), np.uint8)
+    framed[:] = LINE
+    framed[4:-4, 4:-4] = 0                            # a drawn border ring
+    assert mural.margin_ink(framed, geo) > 0.12

@@ -149,6 +149,26 @@ def is_committed(murals_dir: str | Path, key: str) -> bool:
     return any(Path(murals_dir).glob(f"{key}.*"))
 
 
+def margin_ink(m: np.ndarray, geo: Geometry) -> float:
+    """Fraction of the covered margin that is LINE, as a border-cruft alarm.
+
+    The deck's frame band overlaps the art window, so only the inner
+    `field.insets` rectangle is actually visible; anything outside it is
+    painted over. Background bleeding into that margin is correct and expected.
+    A ring of LINE there is not -- it means the generator drew its own frame,
+    vignette or caption, which will collide with the deck's frame instead of
+    sitting under it.
+
+    Returned as a fraction so the caller can warn rather than fail: a legitimate
+    composition can put a staff or a mountain edge into the margin, and only a
+    human can tell that from a drawn border."""
+    from arcana import field
+    ix, iy = field.insets(geo)
+    mask = np.ones(m.shape, bool)
+    mask[iy:m.shape[0] - iy, ix:m.shape[1] - ix] = False
+    return float((m[mask] == LINE).mean()) if mask.any() else 0.0
+
+
 def split_global(m: np.ndarray) -> dict[str, np.ndarray]:
     """The inverse of `Element.bind`: factor a global-index matrix (0-14) into
     per-bank LOCAL layers, the authored mural format. Each bank's three global

@@ -11,24 +11,33 @@
 
 provider: retro-diffusion
 
-# 64-384px covers the 144x224 art window. rd_pro__default also fits (max 256)
-# and accepts up to 9 reference_images — the lever for style consistency once a
-# few approved cards exist.
-style: rd_plus__default
+# TRANSFORMATIVE, NOT GENERATIVE. The goal is to map an existing RWS card into
+# pixel space 1-to-1, not to generate a new card from a description. Those are
+# different styles: rd_plus__* and rd_fast__* invent a scene from the prompt,
+# while rd_pro__pixelate takes the input image as the subject and re-renders it.
+# Its 64-256px range covers the 144x224 art window.
+style: rd_pro__pixelate
 
-# img2img denoise against the seed. Low values preserve the scan's own colour
-# and texture, which is exactly what fights a stark 14-colour palette; high
-# values discard the composition the seed exists to carry.
-strength: 0.6
+# How far the model may depart from the seed. 0.6 is generative latitude and
+# produces "a card like this one"; low values hold the composition. The old
+# warning that low strength preserves the scan's own colour applied to feeding a
+# RAW scan -- this seed is already reduced, and `input_palette` constrains
+# colour, so holding close is now the safer end. Expect to tune this first.
+strength: 0.35
 
 candidates: 4
 
-# Subject only. NEVER write "pixel art" — the style handles rendering, and
-# saying it in the prompt tends to produce a picture *of* pixel art.
-# Keep the figure inside the safe area: the frame band overlaps the art window,
-# so the usable centre is 112x208 of the 144x224 window.
+# Subject only, and TERSE. With a pixelate style the input image is the subject;
+# the prompt is an anchor that stops drift, not a description to render. A long
+# narrative prompt invites invention -- extra props, a drawn frame, a vignette.
+#
+# NEVER write "pixel art": the style handles rendering, and saying it tends to
+# produce a picture *of* pixel art.
+#
+# Border cruft cannot be prompted away -- the API's `negative` field exists but
+# current models ignore it. Two things handle it instead: the seed is cropped to
+# the picture area so RWS's own printed frame and title band never reach the
+# model, and `import-mural` warns when the result puts heavy line work in the
+# margin the deck's frame will cover.
 prompts:
-  major_00: >-
-    a young traveller stepping off a cliff edge, head raised, a white rose in
-    one hand and a knapsack on a staff over the shoulder, a small white dog
-    leaping at the heels, snowy peaks behind, a white sun high in the corner
+  major_00: the fool, a traveller at a cliff edge with a white dog and a rose

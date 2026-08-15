@@ -289,6 +289,15 @@ def cmd_import_mural(name: str, png: Path, face: str,
     for i, (lab, n) in enumerate(zip(labels, counts)):
         if n:
             print(f"  {i:2} {lab:14} {n:6} px")
+    missing = [lab for lab, n in zip(labels[1:], counts[1:]) if not n]
+    if missing:
+        print(f"  ! unused: {', '.join(missing)} — a bank the art never touches "
+              f"is a hue family missing from this card")
+    ink = mural.margin_ink(g, geo)
+    if ink > 0.12:
+        print(f"  ! {ink:.0%} of the covered margin is line work — the generator "
+              f"may have drawn its own frame, which the deck's frame will "
+              f"collide with rather than cover")
     return dest
 
 

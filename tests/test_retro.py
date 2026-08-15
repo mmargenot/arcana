@@ -112,3 +112,31 @@ def test_decode_images_rejects_an_unexpected_response():
     assert retro.decode_images({"base64_images": [base64.b64encode(b"x").decode()]}) == [b"x"]
     with pytest.raises(retro.GenerationError):
         retro.decode_images({"images": ["..."]})
+
+
+# --- 1-to-1 mapping, not generation --------------------------------------
+def test_style_is_transformative_not_generative(ctx):
+    """The deck maps existing RWS cards into pixel space; it does not invent
+    new ones. rd_plus__*/rd_fast__* take the prompt as the subject and the
+    input only as a hint -- rd_pro__pixelate/edit take the IMAGE as the
+    subject. Drifting back to a generative style is how 22 cards stop being
+    the same deck."""
+    _, _, gen = ctx
+    assert gen.style in ("rd_pro__pixelate", "rd_pro__edit"), gen.style
+
+
+def test_strength_holds_the_composition(ctx):
+    """Strength is the only fidelity knob the API offers -- the `negative`
+    field is a documented placeholder that current models ignore. Above ~0.5
+    the model is redrawing rather than re-rendering."""
+    _, _, gen = ctx
+    assert 0.0 < gen.strength <= 0.5, gen.strength
+
+
+def test_prompts_are_anchors_not_descriptions(ctx):
+    """With a pixelate style the seed is the subject; a long narrative prompt
+    invites the invention this whole path is trying to avoid -- extra props, a
+    drawn frame, a vignette."""
+    _, _, gen = ctx
+    for key, text in gen.prompts.items():
+        assert len(text.split()) <= 20, f"{key}: {len(text.split())} words"
