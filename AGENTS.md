@@ -81,9 +81,11 @@ bug that is invisible at 1× and glaring in print.
   axis, so an asymmetric motif makes half the pip cards asymmetric.
 - The **field varies only inside an invisible border** — a plain-`ground` margin
   rings every field design so the pattern never runs into the frame.
-- A mural is **an image laid on the field**: per-bank local layers, foreground
-  inside `field.insets`, and every mural exercises line, paper, and **all four
-  banks** — the majors use all 14 colors, never a subset (`tests/test_mural.py`).
+- A mural is **an image laid on the field**: per-bank local layers sized to the
+  **image box** (inside the frame band on the sides — never under the dentils),
+  foreground a uniform `margin` inside the box, and every mural exercises line,
+  paper, and **all four banks** — the majors use all 14 colors, never a subset
+  (`tests/test_mural.py`).
 - When re-writing a mural stem, **clear its old layer files first** — a bank
   dropped between writes leaves a stale layer that silently covers the new art.
 
@@ -340,7 +342,7 @@ by plaintext, never redrawn per card.
 
 ### Murals (major arcana)
 
-A major's art is a **mural**: an art-window image laid on the field, authored
+A major's art is a **mural**: an image laid on the field, authored
 exactly like a pip — per-bank layer files in the same 6-glyph local ASCII
 alphabet, making it simply the deck's biggest element. `Element.bind` merges
 the layers, which is how one mural uses **all 14 drawable colors** (the
@@ -379,11 +381,15 @@ contract that art must meet when it lands.
   architecture/thrones/robes, `motif` key props, `figure` flesh — doubling
   as the warm accent ramp (wood, gold, flame), which is what lets emblems
   without people still exercise it.
-- **Foreground discipline** — motif/figure/border content stays inside
-  `field.insets`; only field-bank strata run edge-to-edge under the frame.
+- **The image box** (`mural.image_box`) — a mural is (card − 2·corner) wide ×
+  art-window tall: flush with the frame band's inner edge on the sides, where
+  the wider art window would run 8px under the side dentils (top and bottom
+  bands already stop at the art edge). The full-bleed field runs under the
+  band; the image never does. Foreground keeps a further uniform `margin`
+  clear inside the box. Import side-trims art-window-sized input.
 - **The bidirectional seam** — `mural.split_global` is the exact inverse of
   `Element.bind` (LINE/PAPER land in the `figure` layer by convention);
-  `arcana export-mural` renders a mural's art window to RGB, and
+  `arcana export-mural` renders a mural's image box to RGB, and
   `arcana import-mural` quantizes any RGB back through
   `tileio.quantize_rgb_global` (nearest-of-14, int32 distances, tolerance
   with a first-bad-pixel report, `--force` to snap) and writes the same

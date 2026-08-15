@@ -36,16 +36,17 @@ def ctx(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def fixture_image(ctx) -> Element:
-    """A deterministic art-window mural meeting the majors' charter: a LINE
+    """A deterministic image-box mural meeting the majors' charter: a LINE
     frame, a PAPER strip, and a dark/mid/light band from every bank — all kept
-    inside `field.insets`. Built in GLOBAL index space and factored through
-    split_global, so the fixture exercises the same layer format a hand (or
-    import-mural) would produce."""
+    a `margin` inside the box (the uniform foreground inset). Built in GLOBAL
+    index space and factored through split_global, so the fixture exercises
+    the same layer format a hand (or import-mural) would produce."""
     _, geo, _, _ = ctx
-    g = np.zeros((geo.art_h, geo.art_w), np.uint8)
-    ix, iy = field.insets(geo)
-    top, bot = iy + 12, geo.art_h - iy - 12
-    left, right = ix + 8, geo.art_w - ix - 8
+    _, _, bw, bh = mural.image_box(geo)
+    g = np.zeros((bh, bw), np.uint8)
+    ix = iy = geo.margin
+    top, bot = iy + 12, bh - iy - 12
+    left, right = ix + 8, bw - ix - 8
     g[top:bot, left:right] = LINE                 # frame, then carve interior
     inner = g[top + 2:bot - 2, left + 2:right - 2]
     inner[:4, :] = PAPER
@@ -81,9 +82,10 @@ def test_loader_round_trips_written_layers(ctx, murals_dir, fixture_image):
     el = mural.load_mural(murals_dir, FIXTURE_N, geo, required=True)
     assert el is not None and el.role == "mural"
     assert set(el.layers) == set(fixture_image.layers)
+    _, _, bw, bh = mural.image_box(geo)
     for bank, a in el.layers.items():
         assert bank in BANKS
-        assert a.shape == (geo.art_h, geo.art_w)
+        assert a.shape == (bh, bw)
         assert a.dtype == np.uint8 and int(a.max(initial=0)) <= MAX_LOCAL
         assert np.array_equal(a, fixture_image.layers[bank])
 
@@ -96,8 +98,8 @@ def test_fixture_meets_the_majors_charter(ctx, fixture_image):
     m = compose.build_mural(pal, geo, els,
                             field.field_for_suit(cfg, "majors", None),
                             image=fixture_image)
-    ox, oy = geo.art_origin
-    window = m[oy:oy + geo.art_h, ox:ox + geo.art_w]
+    bx, by, bw, bh = mural.image_box(geo)
+    window = m[by:by + bh, bx:bx + bw]
     present = set(np.unique(window).tolist())
     assert LINE in present and PAPER in present
     for i, bank in enumerate(BANKS):
@@ -117,15 +119,17 @@ def test_mural_indices_are_suit_invariant(ctx, fixture_image):
         assert np.array_equal(base, other)
 
 
-def test_image_respects_field_insets(ctx, fixture_image):
-    """Foreground discipline: the image stays inside `field.insets`, where the
-    frame band (and a full-scale top medallion) can never touch it. Content in
-    the overlap ring is invisible on screen and clipped in print."""
+def test_image_respects_foreground_inset(ctx, fixture_image):
+    """Foreground discipline: the image keeps a uniform `margin` clear inside
+    the box, where the frame band (and a full-scale top medallion) can never
+    touch it. The box already sits clear of the side bands, so the inset is
+    even on all four sides."""
     pal, geo, _, _ = ctx
     bound = fixture_image.bind(pal)
-    ix, iy = field.insets(geo)
-    assert (bound[:iy, :] == 0).all() and (bound[geo.art_h - iy:, :] == 0).all()
-    assert (bound[:, :ix] == 0).all() and (bound[:, geo.art_w - ix:] == 0).all()
+    _, _, bw, bh = mural.image_box(geo)
+    g = geo.margin
+    assert (bound[:g, :] == 0).all() and (bound[bh - g:, :] == 0).all()
+    assert (bound[:, :g] == 0).all() and (bound[:, bw - g:] == 0).all()
 
 
 # --- compose contract ---------------------------------------------------
@@ -156,9 +160,10 @@ def test_no_image_is_the_bare_full_bleed_field(ctx):
     assert (m[title_row, ox:ox + geo.art_w] != 0).all()  # field runs under it
 
 
-def test_mural_only_touches_art_window(ctx, fixture_image):
-    """A mural changes nothing outside the art window: frame, bands, and label
-    are identical with and without the image."""
+def test_mural_only_touches_image_box(ctx, fixture_image):
+    """A mural changes nothing outside the image box — in particular the side
+    strips under the frame band, where the wider art window would have let it
+    leak: frame, bands, and label are identical with and without the image."""
     pal, geo, cfg, els = ctx
     from arcana.text import Font
     font = seed.placeholder_font()
@@ -166,9 +171,9 @@ def test_mural_only_touches_art_window(ctx, fixture_image):
               pip_key=cfg["suit_pips"]["majors"], med_style="suit", med_scale=0.5)
     bare = compose.build_major_card(pal, geo, els, font, **kw)
     with_ = compose.build_major_card(pal, geo, els, font, image=fixture_image, **kw)
-    ox, oy = geo.art_origin
+    bx, by, bw, bh = mural.image_box(geo)
     mask = np.ones_like(bare, bool)
-    mask[oy:oy + geo.art_h, ox:ox + geo.art_w] = False
+    mask[by:by + bh, bx:bx + bw] = False
     assert np.array_equal(bare[mask], with_[mask])
     assert isinstance(font, Font)
 
@@ -243,14 +248,14 @@ def test_split_global_rejects_out_of_range():
 
 # --- the bidirectional pixel <-> ASCII path -----------------------------
 def _window(ctx, image):
-    """The image composed onto the field, cropped to the art window — exactly
+    """The image composed onto the field, cropped to the image box — exactly
     what export-mural renders."""
     pal, geo, cfg, els = ctx
     m = compose.build_mural(pal, geo, els,
                             field.field_for_suit(cfg, "majors", None),
                             image=image)
-    ox, oy = geo.art_origin
-    return m[oy:oy + geo.art_h, ox:ox + geo.art_w]
+    bx, by, bw, bh = mural.image_box(geo)
+    return m[by:by + bh, bx:bx + bw]
 
 
 def test_pixel_ascii_round_trip_is_lossless(ctx, fixture_image, tmp_path):
@@ -285,7 +290,8 @@ def test_import_rejects_off_palette_pixels(ctx, fixture_image, tmp_path):
     with pytest.raises(AssetError, match=r"1 pixel\(s\).*\(10,10\)"):
         quantize_rgb_global(png, pal.for_suit("majors"))
     snapped = quantize_rgb_global(png, pal.for_suit("majors"), force=True)
-    assert snapped.shape == (geo.art_h, geo.art_w)
+    _, _, bw, bh = mural.image_box(geo)
+    assert snapped.shape == (bh, bw)
     assert 0 < int(snapped[10, 10]) <= 14        # snapped to a real slot
 
 

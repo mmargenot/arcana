@@ -1,5 +1,5 @@
 """
-Major-arcana murals: the art-window image that fills a major's frame.
+Major-arcana murals: the image that fills a major's frame.
 
 A mural is authored EXACTLY like a pip: per-bank layer files in the same
 6-glyph local ASCII alphabet (`.@'%+-`, see tileio) or indexed/RGB PNG — a
@@ -12,6 +12,15 @@ all 14 drawable colours even though no single file exceeds six slots.
                                 major_16.motif.txt
                                 major_16.figure.txt
                                 major_16.field.txt
+
+THE IMAGE BOX (`image_box`): a mural is NOT art-window-sized. The art window
+overlaps the side frame bands by (corner - margin), so a window-wide image
+would run under the side dentils — top and bottom sit clear, making the
+overlap one-axis and easy to miss. The mural's canonical size is the box
+INSIDE the frame band on the sides: (card_w - 2*corner) x art_h. The
+full-bleed background field still runs under the band; the image never does.
+A bonus of the narrower box: the foreground-inset convention becomes a
+uniform `margin` on all four sides instead of sides-vs-verticals asymmetry.
 
 Murals live in the deck CONFIG dir, committed, unlike tiles: they are the
 deck's actual art, not regenerable placeholders, and ASCII text diffs like any
@@ -54,6 +63,15 @@ from arcana.geometry import Geometry
 from arcana.palette import BANKS, DARK, LINE, PAPER
 
 
+def image_box(geo: Geometry) -> tuple[int, int, int, int]:
+    """(x, y, w, h) of the mural image box on the card: flush with the frame
+    band's inner edge on the sides (the art window would run 8px under the
+    side dentils), and with the art window's top and bottom (the horizontal
+    bands already stop there)."""
+    return (geo.corner, geo.art_origin[1],
+            geo.card_w - 2 * geo.corner, geo.art_h)
+
+
 def stem(number: int) -> str:
     """The dotted-stem base for a major's layer files: `major_07` -> the
     on-disk family `major_07.<bank>.txt|png`. Zero-padded so a directory
@@ -80,7 +98,8 @@ def load_mural(murals_dir: str | Path, number: int, geo: Geometry,
     deck that ships murals deserves an error naming the expected files, not a
     silently bare card."""
     d = Path(murals_dir)
-    expect = (geo.art_h, geo.art_w)
+    _, _, bw, bh = image_box(geo)
+    expect = (bh, bw)
     from arcana.tileio import read_any
     layers: dict[str, np.ndarray] = {}
     for bank in BANKS:

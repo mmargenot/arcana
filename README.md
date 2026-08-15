@@ -74,19 +74,22 @@ Everything is written under `decks/artifacts/<deck>/` (git-ignored).
     takes a keyword (`full`/`large`/`small`/`smaller`/`tiny`) or a number.
 - `arcana majors <deck>` renders the 22 major arcana: frame, field, and label.
   When a deck ships mural art — a **mural** is an image laid on the field —
-  it is composited into the art window automatically. Murals are per-bank
+  it is composited over the field automatically, sized to the **image box**
+  (inside the frame band on the sides, so art never sits under the repeating
+  border motif). Murals are per-bank
   ASCII layers under `decks/configs/<deck>/murals/`, authored in the same
   local index space as any tile — so a palette swap recolors them; their
   presence is the switch (all-or-nothing: a partial set fails loudly), and
   `--no-murals` renders bare for comparison. No deck currently commits mural
   art, so the majors render the bare field.
 - `arcana import-mural <deck> <png> --major N` maps pixel art into the glyph
-  representation: it quantizes any art-window-sized RGB image to the deck's
-  14 drawable colors (`--force` snaps off-palette pixels) and writes the
-  per-bank ASCII layer files. `arcana export-mural` is the exact inverse —
-  it renders a mural's art window back to an RGB PNG (for external editors,
-  or as a generation init image). The round trip is lossless, which is how
-  externally generated pixel art (e.g. Retro Diffusion) enters the deck.
+  representation: it quantizes an image-box-sized RGB image to the deck's 14
+  drawable colors (`--force` snaps off-palette pixels; art-window-sized input
+  is side-trimmed to the box) and writes the per-bank ASCII layer files.
+  `arcana export-mural` is the exact inverse — it renders a mural's image box
+  back to an RGB PNG (for external editors, or as a generation init image).
+  The round trip is lossless, which is how externally generated pixel art
+  (e.g. Retro Diffusion) enters the deck.
 - `arcana seed <deck>` just (re)writes the placeholder tiles.
 - `--scale N` is a NEAREST zoom applied only to the preview contact sheet so the
   tiny pixel-art cards are legible; individual PNGs are always native resolution.
