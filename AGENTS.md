@@ -27,16 +27,23 @@ src/arcana/
   palette.py   Bank, Palette, local/global index space
   geometry.py  Geometry + tiling validation
   elements.py  Element, indexed-PNG loader, audit
-  tileio.py    RGB import, ASCII format, format dispatch
-  compose.py   border assembly + structural checks
+  tileio.py    RGB import (local + global quantizers), ASCII format, dispatch
+  field.py     heraldic field designs (named registry, per suit)
+  layout.py    pip arrangements (named registry, per rank)
+  text.py      bitmap font + label bands
+  data.py      canonical names, numerals, label helpers
+  mural.py     major-arcana murals: layer loader, split_global, opt-in probe
+  compose.py   border assembly + card composition + structural checks
   seed.py      placeholder-tile generators (procedural + ASCII pips)
   deck.py      deck resolution (config + artifacts paths)
   cli.py       thin `arcana` CLI (entry point: arcana.cli:main)
 decks/
-  configs/<name>/   palette.yaml + deck.yaml   (committed)
-  artifacts/<name>/ generated tiles + renders  (git-ignored)
+  configs/<name>/   palette.yaml + deck.yaml  (committed; + murals/ when art lands)
+  artifacts/<name>/ generated tiles + renders           (git-ignored)
 tests/
   test_deck.py      regression tests, tiles seeded into tmp
+  test_mural.py     mural tooling invariants + the import/export round trip
+  test_field.py / test_layout.py / test_text.py
 ```
 
 The package `__init__.py` is intentionally minimal — import from submodules
@@ -74,6 +81,11 @@ bug that is invisible at 1× and glaring in print.
   axis, so an asymmetric motif makes half the pip cards asymmetric.
 - The **field varies only inside an invisible border** — a plain-`ground` margin
   rings every field design so the pattern never runs into the frame.
+- A mural is **an image laid on the field**: per-bank local layers, foreground
+  inside `field.insets`, and every mural exercises line, paper, and **all four
+  banks** — the majors use all 14 colors, never a subset (`tests/test_mural.py`).
+- When re-writing a mural stem, **clear its old layer files first** — a bank
+  dropped between writes leaves a stale layer that silently covers the new art.
 
 ---
 
@@ -106,14 +118,14 @@ the wrong axis).
 
 | bank | carries | varies by |
 |---|---|---|
-| `border` | frame, corner, edge, **labels** | nothing |
-| `field` | card background | suit |
-| `motif` | pips, ornament | suit |
-| `figure` | skin (major figure image) | nothing |
+| `border` | frame, corner, edge, **labels**; mural architecture | nothing |
+| `field` | card background; mural strata | suit |
+| `motif` | pips, ornament; mural props | suit |
+| `figure` | skin — mural figures, and the warm accent ramp | nothing |
 
 Labels bind to `border` (not `figure`): a title matches the frame and is uniform
-across a deck, per the maintainer's call. The `figure` bank is reserved for the
-major-arcana figure image, still unexercised.
+across a deck, per the maintainer's call. The `figure` bank is exercised by the
+major-arcana murals (flesh, and warm accents — wood, gold, flame).
 
 A card may use all four — same as an NES background where each tile picks a
 palette but the screen uses every one. Multi-layer elements get >3 colors by
@@ -326,6 +338,59 @@ by plaintext, never redrawn per card.
   `build_pip_card` with no `font` is byte-identical to before, so the base
   suit-invariance guarantee is untouched.
 
+### Murals (major arcana)
+
+A major's art is a **mural**: an art-window image laid on the field, authored
+exactly like a pip — per-bank layer files in the same 6-glyph local ASCII
+alphabet, making it simply the deck's biggest element. `Element.bind` merges
+the layers, which is how one mural uses **all 14 drawable colors** (the
+majors' charter, tested) while every stored file stays in 6-slot local space,
+and why a palette swap recolors the whole set without touching a pixel.
+
+The **pipeline is complete and tested; no deck currently commits mural art**
+(several design rounds were produced and retired — see the roadmap), so
+`arcana majors` renders the bare field today. Everything below is the
+contract that art must meet when it lands.
+
+- **Representation** — layers live at
+  `decks/configs/<deck>/murals/major_NN.<bank>.txt` (dotted stems, so
+  never `with_suffix`). Murals are the one kind of pixel data that is
+  **committed in config**: they are the deck's actual art, not regenerable
+  placeholders, and ASCII diffs like source. `mural.load_mural` gathers the
+  layers into an `Element(role="mural")`; a missing mural is `None`, or a loud
+  error naming the expected stem when `required`.
+- **Composition** — `build_mural` = field background + `image.bind` overlay;
+  the image's transparent pixels show the field, so a card's "sky" recolors
+  with the palette. The field runs **full-bleed** (`compose.content_field`,
+  shared by minors and majors): the card's inner rectangle from `geo.margin`
+  in on every side — the same depth under the frame band on all four sides,
+  so the band's repeating ornament sits on field everywhere and the title
+  floats on the field, never on bare paper (the frame's rules and their
+  paper gap ring it from outside). `image=None` is the bare full-bleed
+  field. A `field` LAYER is still legal (night skies, pools) so dark strata
+  stay in the background's hue family.
+- **Opt-in is presence, all-or-nothing** — no config knob: a deck with no
+  `murals/` layers renders the bare field; once ANY major has layers, every
+  major is required, so a partial art set fails loudly naming the missing
+  stem instead of printing one silently bare card (`arcana majors
+  --no-murals` renders bare deliberately, for comparison). Bank semantics
+  inside a mural: `line` outlines/black, `paper` whites (roses, bones,
+  stars, the pale horse), `field` strata, `border`
+  architecture/thrones/robes, `motif` key props, `figure` flesh — doubling
+  as the warm accent ramp (wood, gold, flame), which is what lets emblems
+  without people still exercise it.
+- **Foreground discipline** — motif/figure/border content stays inside
+  `field.insets`; only field-bank strata run edge-to-edge under the frame.
+- **The bidirectional seam** — `mural.split_global` is the exact inverse of
+  `Element.bind` (LINE/PAPER land in the `figure` layer by convention);
+  `arcana export-mural` renders a mural's art window to RGB, and
+  `arcana import-mural` quantizes any RGB back through
+  `tileio.quantize_rgb_global` (nearest-of-14, int32 distances, tolerance
+  with a first-bad-pixel report, `--force` to snap) and writes the same
+  committed ASCII. The round trip is index-lossless under a matching palette
+  — external generation (the plan below) plugs in here, with no special
+  format for generated art.
+
 ---
 
 ## Design rationale & the experiments behind it
@@ -412,6 +477,8 @@ lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
 | **Label clips the frame** | a title bleeding into the frame rule breaks the ring | minor labels paint UNDER the border, so the rule wins — `test_frame_not_clipped_by_labels` |
 | **Anti-aliased glyph** | a soft glyph edge lands off the authoring palette | glyphs are single-slot local ink, asserted `⊆ {0, INK}` |
 | **Title wraps/overflows** | a long major spills the band or wraps to two lines | `fit_line` guarantees one line ≤ width for every deck label |
+| **Silent bank drop** | a mural's image never touched a bank — one card of a printed spread quietly missing a hue family | looks like a stylistic choice until the cards sit side by side — `test_fixture_meets_the_majors_charter` encodes the check |
+| **Stale mural layer** | re-authoring moved content between banks; the dropped bank's old `.txt` lingered and painted over the new art | the composed card still looks plausible — writers clear the stem first, and the same rule guards `import-mural` |
 
 ---
 
@@ -425,12 +492,16 @@ pipeline** are complete and tested: two independent card axes — a heraldic
 `build_major_card` and `arcana cards` / `arcana majors`. The **`figure` bank is
 the only unexercised bank**. Still open:
 
-1. **Major-arcana image incorporation** — feed SLIC-collapsed RWS scans to a
-   generative model (see the generation plan above) and composite the result
-   into the mural (`compose.build_mural` leaves the seam). Lights up the
-   `figure` bank.
+1. **Major-arcana mural designs** — the *pipeline* is done and tested
+   (`arcana.mural`: per-bank layer format, loader, compose seam, and the
+   lossless `export-mural`/`import-mural` pixel↔ASCII round trip), but the
+   *art* is open: two full design rounds (procedural generation, then
+   hand-typed ASCII) were produced and retired on quality. The next attempt
+   should likely enter through the external-art path — `arcana export-mural`
+   (init image) → a pixel-art model or human artist → `arcana import-mural` —
+   which needs no engine change.
 2. **Court cards** — the 16 figures (page/knight/queen/king), likely sharing the
-   major-arcana image path.
+   major-arcana mural path.
 
 ## Open questions
 

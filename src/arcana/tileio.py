@@ -78,6 +78,45 @@ def read_rgb(path: str | Path, expect: tuple[int, int] | None = None,
     return idx
 
 
+def quantize_rgb_global(path: str | Path, palette, tolerance: float = 24.0,
+                        force: bool = False) -> np.ndarray:
+    """
+    Import ANY RGB image — external pixel art, a generative model's output, a
+    re-edited export — as a GLOBAL index matrix (0-14) by snapping each pixel
+    to the nearest of the palette's 14 drawable colors. The `read_rgb` of the
+    mural world: same distance discipline (int32 — squared RGB distance maxes
+    at 195,075 and int16 wraps), same off-palette report naming the first bad
+    pixel, but against a deck's rendered colors instead of the six authoring
+    greys. `force=True` snaps off-palette pixels to their nearest slot instead
+    of raising (ties break to the lowest index, deterministically).
+
+    Real transparency (alpha < 128) becomes index 0 — on a card that shows the
+    field behind the mural image. The result is still deck-portable: it stores
+    SLOTS, not the hexes it was quantized against.
+    """
+    path = Path(path)
+    rgba = np.array(Image.open(path).convert("RGBA"), np.int32)
+    rgb, alpha = rgba[..., :3], rgba[..., 3]
+    ref = palette.rgb_lut().astype(np.int32)[1:]      # the 14 drawable colors
+
+    d = ((rgb[:, :, None, :] - ref[None, None, :, :]) ** 2).sum(-1)
+    idx = (d.argmin(-1) + 1).astype(np.uint8)         # +1: ref[0] is global 1
+    dist = np.sqrt(d.min(-1))
+    idx[alpha < 128] = 0                              # real transparency wins
+
+    off = (dist > tolerance) & (alpha >= 128)
+    if off.any() and not force:
+        n = int(off.sum())
+        ys, xs = np.nonzero(off)
+        sample = rgb[ys[0], xs[0]]
+        raise AssetError(
+            f"{path.name}: {n} pixel(s) off the deck palette, first at "
+            f"({xs[0]},{ys[0]}) = #{sample[0]:02X}{sample[1]:02X}{sample[2]:02X}. "
+            "Anti-aliasing or an unquantized source is the usual cause — "
+            "re-export with a hard palette, or pass --force to snap.")
+    return idx
+
+
 def write_rgb(art: np.ndarray, path: str | Path) -> None:
     """Export as plain RGB PNG for editing in a non-indexed tool."""
     ref = np.array(AUTHORING, np.uint8)

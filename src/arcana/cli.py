@@ -8,8 +8,15 @@ config to the render pipeline and writes the results.
         [--suit S | --all-suits]         1-10) with numeral/title labels;
         [--no-labels]                    --layout forces one everywhere,
                                          --no-labels renders bare
-    arcana majors <deck> [--no-labels]   render the 22 major arcana (labeling
-                                         half; figure image is a later item)
+    arcana majors <deck> [--no-labels]   render the 22 major arcana: mural
+        [--no-murals]                    (when the deck ships murals/ layers)
+                                         + frame + label
+    arcana import-mural <deck> <png>     quantize external pixel art (Retro
+        --major N [--force]              Diffusion output, edited exports...)
+                                         into a major's committed mural layers
+    arcana export-mural <deck> --major N render a major's mural (art window
+                                         only) to RGB PNG, for external tools;
+                                         the exact inverse of import-mural
     arcana seed <deck>                   (re)write placeholder tiles only
 
 `--scale` is a NEAREST-neighbour zoom applied ONLY to the preview contact sheet,
@@ -22,10 +29,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from arcana.deck import load_deck, assets_dir, render_dir, CONFIGS, ARTIFACTS
-from arcana.elements import load_all, audit
+from arcana.deck import load_deck, assets_dir, config_dir, render_dir, CONFIGS, ARTIFACTS
+from arcana.elements import AssetError, load_all, audit
 from arcana.seed import seed_deck
-from arcana import layout, field, data
+from arcana import layout, field, data, mural
 from arcana.text import load_font
 from arcana.compose import (build_border, render_border, build_medallion,
                             build_pip_card, build_major_card,
@@ -173,10 +180,11 @@ def cmd_cards(name: str, layout_override: str | None, field_override: str | None
 
 
 def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
-               med_scale_override: str | None, configs_root: Path,
-               artifacts_root: Path) -> Path:
-    """Render the 22 major arcana (labeling half — the figure image is a later
-    roadmap item; `build_major_card` leaves the seam)."""
+               med_scale_override: str | None, no_murals: bool,
+               configs_root: Path, artifacts_root: Path) -> Path:
+    """Render the 22 major arcana: mural (image laid on the field, rendered
+    whenever the deck ships murals/ layers — see arcana.mural) + frame +
+    label. `--no-murals` renders the bare field for comparison."""
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
 
@@ -188,6 +196,10 @@ def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
     pip_key = cfg["suit_pips"].get("majors")
     fname = field.field_for_suit(cfg, "majors", None)
     med_style, med_scale = _medallion_opts(cfg, med_override, med_scale_override)
+    murals_dir = config_dir(name, configs_root) / "murals"
+    # presence is the opt-in, all-or-nothing: once any mural layers exist,
+    # every major is required — a partial set fails naming the missing stem
+    murals_on = mural.has_murals(murals_dir) and not no_murals
 
     out = render_dir(name, artifacts_root) / "majors"
     out.mkdir(parents=True, exist_ok=True)
@@ -199,9 +211,15 @@ def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
     for number in range(len(data.MAJOR_NAMES)):
         top, bottom = (data.major_label(number, split=opts["split"], cfg=cfg)
                        if labels_on else (None, None))
+        try:
+            image = (mural.load_mural(murals_dir, number, geo, required=True)
+                     if murals_on else None)
+        except AssetError as e:
+            raise SystemExit(str(e))
         m = build_major_card(pal, geo, els, font, top=top, bottom=bottom,
                              field_design=fname, pip_key=pip_key,
-                             med_style=med_style, med_scale=med_scale)
+                             med_style=med_style, med_scale=med_scale,
+                             image=image)
         rgb = pal.for_suit("majors").render(m)
         Image.fromarray(rgb).save(out / f"major_{number:02d}.png")
         r, c = divmod(number, cols)
@@ -209,8 +227,79 @@ def cmd_majors(name: str, scale: int, no_labels: bool, med_override: str | None,
         sheet[y:y + H, x:x + W] = rgb
     img = Image.fromarray(sheet)
     img.resize((img.width * scale, img.height * scale), Image.NEAREST).save(out / "majors.png")
-    print(f"wrote {out}  (22 majors, labels: {'on' if labels_on else 'off'})")
+    print(f"wrote {out}  (22 majors, murals: {'on' if murals_on else 'off'}, "
+          f"labels: {'on' if labels_on else 'off'})")
     return out
+
+
+def cmd_import_mural(name: str, png: Path, major: int,
+                     tolerance: float, force: bool, out: Path | None,
+                     configs_root: Path, artifacts_root: Path) -> Path:
+    """Externally generated pixel art -> committed mural layers: quantize the
+    RGB to the deck's 14 drawable colors, factor global indices into per-bank
+    local layers (mural.split_global), and write the same dotted-stem ASCII a
+    hand would author. The exact inverse of `export-mural`, so external art
+    and authored art are indistinguishable on disk."""
+    deck = load_deck(name, configs_root)
+    pal, geo = deck.palette, deck.geometry
+    from arcana.tileio import quantize_rgb_global, write_ascii
+    try:
+        g = quantize_rgb_global(png, pal.for_suit("majors"), tolerance, force)
+    except AssetError as e:
+        raise SystemExit(str(e))
+    if g.shape != (geo.art_h, geo.art_w):
+        raise SystemExit(f"{png.name} is {g.shape[1]}x{g.shape[0]}, the art "
+                         f"window is {geo.art_w}x{geo.art_h}")
+    dest = out or config_dir(name, configs_root) / "murals"
+    dest.mkdir(parents=True, exist_ok=True)
+    s = mural.stem(major)
+    for stale in dest.glob(f"{s}.*.txt"):
+        stale.unlink()          # a dropped bank's old layer must not linger
+    layers = mural.split_global(g)
+    for bank, layer in layers.items():
+        write_ascii(layer, dest / f"{s}.{bank}.txt", name=f"{s}.{bank}")
+    # the color histogram is the import's diagnostic: a slot you expected that
+    # is missing (or one you didn't that is huge) means the quantize went wrong
+    labels = ["transparent", "line", "paper"] + [
+        f"{b}.{r}" for b in ("border", "field", "motif", "figure")
+        for r in ("dark", "mid", "light")]
+    counts = np.bincount(g.ravel(), minlength=15)
+    print(f"wrote {len(layers)} layer(s) for {s} -> {dest}")
+    for i, (lab, n) in enumerate(zip(labels, counts)):
+        if n:
+            print(f"  {i:2} {lab:14} {n:6} px")
+    return dest
+
+
+def cmd_export_mural(name: str, major: int, scale: int,
+                     out: Path | None, configs_root: Path,
+                     artifacts_root: Path) -> Path:
+    """A major's mural as a plain RGB PNG — exactly the card's art window
+    (image laid on the field), for editing in any external tool or feeding a
+    generative model as an init image. Re-import the result with
+    `import-mural`; a round trip is index-lossless."""
+    deck = load_deck(name, configs_root)
+    pal, geo, cfg = deck.palette, deck.geometry, deck.config
+    murals_dir = config_dir(name, configs_root) / "murals"
+    try:
+        image = mural.load_mural(murals_dir, major, geo, required=True)
+    except AssetError as e:
+        raise SystemExit(str(e))
+    fname = field.field_for_suit(cfg, "majors", None)
+    from arcana.compose import build_mural as _build_mural
+    m = _build_mural(pal, geo, {}, fname, image=image)
+    ox, oy = geo.art_origin
+    window = m[oy:oy + geo.art_h, ox:ox + geo.art_w]
+    rgb = pal.for_suit("majors").render(window)
+    dest = out or (render_dir(name, artifacts_root) / "murals" /
+                   f"{mural.stem(major)}.png")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.fromarray(rgb)
+    if scale > 1:
+        img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
+    img.save(dest)
+    print(f"wrote {dest}  ({geo.art_w}x{geo.art_h} at {scale}x)")
+    return dest
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -255,6 +344,31 @@ def build_parser() -> argparse.ArgumentParser:
                    help="edge medallion: suit | lozenge | none (default: from deck.yaml)")
     m.add_argument("--medallion-scale", type=float, metavar="F",
                    help="scale the medallion (e.g. 0.5); default from deck.yaml")
+    m.add_argument("--no-murals", action="store_true",
+                   help="render the bare field even when the deck ships mural layers")
+
+    im = sub.add_parser("import-mural",
+                        help="quantize an external RGB image into a major's mural layers")
+    im.add_argument("deck")
+    im.add_argument("png", type=Path, help="RGB/RGBA image, art-window sized")
+    im.add_argument("--major", type=int, required=True, metavar="N",
+                    help="major number 0-21")
+    im.add_argument("--tolerance", type=float, default=24.0, metavar="F",
+                    help="max color distance before a pixel is off-palette (default: 24)")
+    im.add_argument("--force", action="store_true",
+                    help="snap off-palette pixels to their nearest slot instead of failing")
+    im.add_argument("--out", type=Path, metavar="DIR",
+                    help="write layers here instead of the deck's murals dir")
+
+    ex = sub.add_parser("export-mural",
+                        help="render a major's mural (art window only) to an RGB PNG")
+    ex.add_argument("deck")
+    ex.add_argument("--major", type=int, required=True, metavar="N",
+                    help="major number 0-21")
+    ex.add_argument("--scale", type=int, default=1,
+                    help="NEAREST zoom for the exported PNG (default: 1)")
+    ex.add_argument("--out", type=Path, metavar="FILE",
+                    help="output path (default: artifacts murals dir)")
 
     s = sub.add_parser("seed", help="(re)write a deck's placeholder tiles")
     s.add_argument("deck")
@@ -272,7 +386,15 @@ def main(argv: list[str] | None = None) -> int:
                   args.configs_root, args.artifacts_root)
     elif args.command == "majors":
         cmd_majors(args.deck, args.scale, args.no_labels, args.medallion,
-                   args.medallion_scale, args.configs_root, args.artifacts_root)
+                   args.medallion_scale, args.no_murals,
+                   args.configs_root, args.artifacts_root)
+    elif args.command == "import-mural":
+        cmd_import_mural(args.deck, args.png, args.major,
+                         args.tolerance, args.force, args.out,
+                         args.configs_root, args.artifacts_root)
+    elif args.command == "export-mural":
+        cmd_export_mural(args.deck, args.major, args.scale,
+                         args.out, args.configs_root, args.artifacts_root)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:

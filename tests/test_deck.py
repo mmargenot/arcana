@@ -199,6 +199,22 @@ def test_pip_card_field_design_applied(ctx):
     assert not np.array_equal(plain, checky)
 
 
+def test_minor_field_runs_under_the_title_band(ctx):
+    """The field is FULL-BLEED for minors too (compose.content_field): the
+    same `geo.margin` depth on all four sides, so the frame band's ornament
+    sits on field top and bottom just like on the sides, and the title band is
+    field colour, never bare paper. Outside `margin` stays clear — that ring
+    belongs to the frame's rules and their paper gap."""
+    pal, geo, cfg, els = ctx
+    m = compose.build_development(pal, geo, els, 4, "square", cfg["suit_pips"]["cups"])
+    ox, oy = geo.art_origin
+    g = geo.margin
+    title_row = oy + geo.art_h + 1                       # inside the title band
+    assert (m[title_row, ox:ox + geo.art_w] != 0).all()  # field runs under it
+    assert (m[g, ox:ox + geo.art_w] != 0).all()          # under the top band too
+    assert (m[:g, :] == 0).all() and (m[geo.card_h - g:, :] == 0).all()
+
+
 # --- labels -------------------------------------------------------------
 FONT = placeholder_font()
 

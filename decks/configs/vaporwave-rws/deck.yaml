@@ -2,7 +2,10 @@
 #
 # YAML holds STRUCTURE: sizes, roles, which bank each layer binds to, how
 # pieces assemble. Pixel data lives in tiles under the deck's artifacts assets
-# dir, because pixels do not belong in a config file.
+# dir, because pixels do not belong in a config file. (A murals/ dir beside
+# this file is the deliberate exception when mural art lands: mural layers are
+# the deck's actual art, committed as diffable ASCII — see the majors note
+# below.)
 #
 # Every size here is load-time validated: the border runs must divide evenly by
 # the edge tile, and each tile must match its declared size.
@@ -113,6 +116,13 @@ field_designs:
     swords: paly          # air — vertical pales
     pentacles: checky     # earth — a chequered ground
     majors: plain
+
+# Major-arcana murals (arcana.mural): when this deck gains mural art, per-bank
+# ASCII layer files go under murals/ beside this file (committed — the one
+# kind of pixel data that lives in config; `arcana import-mural` writes the
+# same format from external pixel art). Presence is the switch, all-or-nothing:
+# any layers -> every major must have some; none -> the majors render the bare
+# field.
 
 # Bitmap text labels (arcana.text + arcana.data). Numeral band (top) and title
 # band (bottom) carry a card's identity, inked in the `border` bank so titles

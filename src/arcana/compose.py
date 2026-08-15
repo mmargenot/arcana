@@ -177,20 +177,33 @@ def _scale_tile(tile: np.ndarray, scale: float) -> np.ndarray:
 # CONTENT object fills the art area, the BORDER rings it, and an optional LABEL
 # names it. `build_development` and `build_mural` are the two content kinds —
 # same slot, interchangeable.
+def content_field(card: np.ndarray, palette: Palette, geo: Geometry,
+                  field_design: str) -> None:
+    """Paint the card-content background, FULL-BLEED: the inner rectangle from
+    `geo.margin` in on every side, pasted at (margin, margin) — the SAME depth
+    under the frame band on all four sides, so the band's repeating ornament
+    sits on field everywhere (top and bottom included, not just the sides) and
+    the title floats on the field, never on bare paper. The frame's rules and
+    their paper gap lie outside this rect. Shared by minors and majors — one
+    extent, one look."""
+    f = build_field(field_design, geo, full_bleed=True)
+    paste(card, palette.bind(f, "field"), geo.margin, geo.margin)
+
+
 def build_development(palette: Palette, geo: Geometry, els: dict[str, Element],
                       count: int, layout_name: str, pip_key: str,
                       field_design: str = "plain",
                       pip_cfg: dict | None = None) -> np.ndarray:
     """The minor-arcana CONTENT: a heraldic field background (the named design,
-    in the `field` bank) with `count` pips placed by the named layout, as one
-    card-sized global-index object (bands left blank). Both field and pips vary
-    only inside an inset margin, so nothing runs into the frame; pip size is
-    auto-fit by `layout.arrange`, which raises if the layout can't fit."""
+    in the `field` bank, full-bleed down to the bottom frame band) with `count`
+    pips placed by the named layout, as one card-sized global-index object.
+    Pips vary only inside the art window's inset margin, so nothing runs into
+    the frame; pip size is auto-fit by `layout.arrange`, which raises if the
+    layout can't fit."""
     card = np.zeros((geo.card_h, geo.card_w), np.uint8)
     ox, oy = geo.art_origin
 
-    field = build_field(field_design, geo)
-    paste(card, palette.bind(field, "field"), ox, oy)
+    content_field(card, palette, geo, field_design)
 
     centres, scale = arrange(layout_name, count, geo, **(pip_cfg or {}))
     pip = _scale_tile(palette.bind(els[pip_key].layers["motif"], "motif"), scale)
@@ -200,14 +213,19 @@ def build_development(palette: Palette, geo: Geometry, els: dict[str, Element],
 
 
 def build_mural(palette: Palette, geo: Geometry, els: dict[str, Element],
-                field_design: str = "plain") -> np.ndarray:
-    """The major-arcana CONTENT: the whole scene as one object. For now it is
-    the field background filling the art window — a documented seam where the
-    `figure`-bank image will paste later (that roadmap item plugs in here)."""
+                field_design: str = "plain", *,
+                image: Element | None = None) -> np.ndarray:
+    """The major-arcana CONTENT: an IMAGE LAID ON A FIELD. The field is the
+    shared full-bleed background (`content_field` — under the frame band's
+    ornament on all four sides, so the title floats on it). The mural image —
+    the deck's biggest element, per-bank layers like any pip (see
+    arcana.mural) — overlays it at the art origin, transparent pixels showing
+    the field. `image=None` is the bare full-bleed field."""
     card = np.zeros((geo.card_h, geo.card_w), np.uint8)
     ox, oy = geo.art_origin
-    field = build_field(field_design, geo)
-    paste(card, palette.bind(field, "field"), ox, oy)
+    content_field(card, palette, geo, field_design)
+    if image is not None:
+        paste(card, image.bind(palette), ox, oy)
     return card
 
 
@@ -293,11 +311,13 @@ def build_major_card(palette: Palette, geo: Geometry, els: dict[str, Element],
                      font: Font, *, top: str | None = None,
                      bottom: str | None = None, field_design: str = "plain",
                      pip_key: str | None = None, med_style: str = "suit",
-                     med_scale: float = 1.0) -> np.ndarray:
-    """A major-arcana card (labeling half): the mural + border + label floating
-    ON TOP of the art, same place as a minor's title. The `figure`-bank image is
-    a later roadmap item — it pastes into the mural (see `build_mural`)."""
-    content = build_mural(palette, geo, els, field_design)
+                     med_scale: float = 1.0,
+                     image: Element | None = None) -> np.ndarray:
+    """A major-arcana card: the mural (an image laid on a full-bleed field —
+    see `build_mural` and arcana.mural) + border + label floating ON TOP of
+    the field, same place as a minor's title. `image=None` renders the bare
+    field."""
+    content = build_mural(palette, geo, els, field_design, image=image)
     med = build_medallion(els, pip_key, style=med_style, scale=med_scale)
     border = render_border(palette, geo, els["corner"], els["edge"], med)
     label = (palette.bind(build_label(geo, font, top=top, bottom=bottom), "border")
