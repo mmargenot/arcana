@@ -173,9 +173,12 @@ medallion competes with them, so it's tunable:
   diamond (`seed.lozenge`, bound to `motif`), or nothing.
 - `scale` — a size multiplier via the NN `_scale_tile`, given as a number or a
   keyword (`full`/`large`/`small`/`smaller`/`tiny`); the deck ships `small`.
-- `none` — `build_border` continues the edge dentils through the medallion slot
-  (horizontal fills exactly; the vertical run's non-tile-divisible remainder —
-  the reason the slot exists — leaves a ~4px centre gap, rule still continuous).
+- `none` — `build_border` continues the edge dentils through the medallion slot:
+  whole tiles up to the mirror axis, then a final tab anchored flush to the axis.
+  The horizontal slot is tile-sized so it fills exactly; the vertical run's
+  non-tile-divisible remainder (the reason the slot exists) would otherwise
+  truncate the last tab and leave a ~4px centre hole, so the anchored tab lands
+  its inter-tab gap on the axis and meets its mirror with the normal seam.
 
 The `medallion.horizontal/vertical` slot stays in `geometry` regardless — it's
 load-bearing for edge-tile divisibility. Defaults (`suit`, `scale 1.0`)
@@ -399,6 +402,7 @@ lattice + 4 sprites, leaving ~38 pieces of real art instead of 78.
 |---|---|---|
 | **Side-edge flip** | `f.T[:, ::-1]` put the outer rule on the inner side — both side edges lost their rule for the whole length | reads as a stray inset line |
 | **Medallion hole** | swapping the medallion for a bare pip removed the frame rules across its span | 16px gap mid-edge |
+| **Vertical slot gap** | `style: none` tiled the dentils outward from the last tile, so the vertical slot's sub-tile remainder truncated the final tab | ~4px hole at the left/right edge midpoints |
 | **Frame fragmentation** | the two above gave 120 disconnected components; correct is one ~4,244px ring | invisible at 1×, glaring in print |
 | **Wrong LUT** | rendered four suits identically — built four palettes, applied the base one | *proved* the index matrix is suit-invariant |
 | **int16 overflow** | squared RGB distance maxes at 195,075; int16 caps at 32,767 → NaN under sqrt | silent wraparound |
