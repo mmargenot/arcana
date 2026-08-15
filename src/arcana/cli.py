@@ -297,7 +297,7 @@ def cmd_import_mural(name: str, png: Path, face: str,
     and authored art are indistinguishable on disk."""
     deck = load_deck(name, configs_root)
     pal, geo = deck.palette, deck.geometry
-    from arcana.tileio import fidelity, quantize_rgb_global, write_ascii
+    from arcana.tileio import coherence, fidelity, quantize_rgb_global, write_ascii
     try:
         g = quantize_rgb_global(png, pal.for_suit("majors"), tolerance, force)
     except AssetError as e:
@@ -348,6 +348,19 @@ def cmd_import_mural(name: str, png: Path, face: str,
         print("  ! this is an approximation, not a translation — the source is "
               "not pixel art in this palette. Check `input_palette` reached the "
               "generator, and prefer a smaller generation grid over upscaling")
+    # Glyphable? Storing indices only buys portability if each bank's three
+    # slots carry a VALUE ramp. Where they do, any palette on the same rungs
+    # re-renders this art; where they do not, it looks right in this palette
+    # only and inverts in the next one.
+    coh = coherence(png, pal.for_suit("majors"))
+    bad = [b for b, v in coh["banks"].items() if v["used"] > 1 and not v["ordered"]]
+    print(f"  glyphable:   {coh['fragments_per_1k']:.1f} bank fragments/1000px, "
+          f"{coh['ordered']:.0%} of banks hold dark<mid<light"
+          + (f" — rungs broken in {', '.join(bad)}" if bad else ""))
+    if coh["fragments_per_1k"] > 20:
+        print("  ! banks are scattered rather than regions, so this will not "
+              "survive a palette swap — recolouring confetti, not shapes. Art "
+              "built from the palette runs under 1")
     missing = [lab for lab, n in zip(labels[1:], counts[1:]) if not n]
     if missing:
         print(f"  ! unused: {', '.join(missing)} — a bank the art never touches "

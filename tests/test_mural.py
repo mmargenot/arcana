@@ -519,3 +519,28 @@ def test_fidelity_separates_a_translation_from_an_approximation(ctx, tmp_path):
     Image.fromarray(rng.integers(0, 256, (geo.art_h, geo.art_w, 3), dtype=np.uint8)).save(noisy)
     f = fidelity(noisy, maj)
     assert f["exact"] < 0.1 and f["colours"] > 1000 and f["mean"] > 10
+
+
+def test_coherence_catches_art_that_will_not_survive_a_palette_swap(ctx, tmp_path):
+    """GLYPHABLE is the point of storing indices: the same matrix rendered
+    through another palette should still read. That needs each bank to own a
+    REGION — a robe, a sky — so a swap recolours shapes. Quantising a photograph
+    scatters banks pixel by pixel and a swap then recolours confetti, which no
+    amount of on-palette accuracy fixes."""
+    from PIL import Image
+    from arcana.tileio import coherence
+    pal, geo, _, _ = ctx
+    maj = pal.for_suit("majors")
+
+    regions = np.zeros((geo.art_h, geo.art_w), np.uint8)     # four solid bands
+    for i in range(4):
+        regions[i * (geo.art_h // 4):(i + 1) * (geo.art_h // 4)] = 3 + 3 * i + 1
+    blocky = tmp_path / "regions.png"
+    Image.fromarray(maj.render(regions)).save(blocky)
+    assert coherence(blocky, maj)["fragments_per_1k"] < 1.0
+
+    rng = np.random.default_rng(0)
+    scatter = rng.integers(1, 15, (geo.art_h, geo.art_w)).astype(np.uint8)
+    noisy = tmp_path / "scatter.png"
+    Image.fromarray(maj.render(scatter)).save(noisy)
+    assert coherence(noisy, maj)["fragments_per_1k"] > 20

@@ -117,6 +117,72 @@ def quantize_rgb_global(path: str | Path, palette, tolerance: float = 24.0,
     return idx
 
 
+def coherence(path: str | Path, palette) -> dict:
+    """Is this art GLYPHABLE -- will it survive a change of palette?
+
+    Storing indices instead of colours only buys anything if the indices carry
+    STRUCTURE. A bank's three slots are a value ramp (dark/mid/light, held to
+    L=30/50/74 for every bank), so art is glyphable when the pixels filed under
+    `bank.dark` really were the dark ones, `bank.mid` the middles, and
+    `bank.light` the lights. Then any palette with the same rung discipline
+    re-renders it and the picture still reads.
+
+    Nearest-colour assignment does not guarantee this at all: it minimises RGB
+    distance, which is dominated by hue. A dark teal can land nearer `motif.mid`
+    than `field.dark`, and the result looks fine in the palette it was quantised
+    against while falling apart in any other -- shading inverts, forms flatten.
+    That failure is invisible until the day you swap the palette, which is
+    exactly the day it is expensive.
+
+    Two things are checked, and the second is the one that bites.
+
+    RUNG ORDER: for each bank, the SOURCE luminance of the pixels on its three
+    slots should run dark < mid < light. Necessary, but weakly discriminating --
+    within a bank the rungs differ mostly in lightness, so nearest-colour tends
+    to get this right even on art that is not pixel art at all.
+
+    BANK FRAGMENTATION: how many separate blobs each bank breaks into. This is
+    what separates art from noise. Real pixel art assigns a bank to a REGION --
+    a robe, a sky, an architrave -- so each bank is a handful of contiguous
+    shapes, and swapping the palette recolours those shapes. Quantising a
+    photograph scatters banks pixel by pixel, and a palette swap then recolours
+    confetti. Measured on this deck: ~0.3 fragments per 1000px for art built
+    from the palette, against ~220 for a pixelated photograph. Three orders of
+    magnitude, so the threshold does not need to be delicate.
+    """
+    from scipy import ndimage as nd
+    from arcana.palette import BANKS
+    path = Path(path)
+    rgba = np.array(Image.open(path).convert("RGBA"), np.int32)
+    rgb, alpha = rgba[..., :3], rgba[..., 3]
+    ref = palette.rgb_lut().astype(np.int32)[1:]
+    idx = (((rgb[:, :, None, :] - ref[None, None, :, :]) ** 2).sum(-1).argmin(-1) + 1)
+    idx[alpha < 128] = 0
+    lum = rgb.mean(2)
+
+    out: dict[str, dict] = {}
+    frags = []
+    for i, bank in enumerate(BANKS):
+        base = 3 + 3 * i
+        meds = []
+        for r in range(3):
+            vals = lum[idx == base + r]
+            meds.append(float(np.median(vals)) if vals.size else float("nan"))
+        present = [m for m in meds if m == m]
+        ordered = len(present) > 1 and all(a < b for a, b in zip(present, present[1:]))
+        region = (idx >= base) & (idx < base + 3)
+        n = int(region.sum())
+        per_k = nd.label(region)[1] / (n / 1000) if n > 50 else float("nan")
+        if per_k == per_k:
+            frags.append(per_k)
+        out[bank] = {"rungs": meds, "ordered": bool(ordered),
+                     "used": len(present), "fragments_per_1k": per_k}
+    scored = [v for v in out.values() if v["used"] > 1]
+    return {"banks": out,
+            "ordered": sum(v["ordered"] for v in scored) / len(scored) if scored else 0.0,
+            "fragments_per_1k": float(np.mean(frags)) if frags else 0.0}
+
+
 def fidelity(path: str | Path, palette) -> dict:
     """How faithfully does this image TRANSLATE into the deck's glyphs?
 
