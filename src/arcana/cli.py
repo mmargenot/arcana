@@ -357,6 +357,15 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
     out.mkdir(parents=True, exist_ok=True)
     if init is not None:
         from arcana.pixelate import pixelate
+        if not init.exists():
+            raise SystemExit(
+                f"no seed image at {init}. Source scans are inputs, not "
+                f"deliverables, so they live under the git-ignored artifacts "
+                f"dir and are not in the repo. For the RWS majors:\n"
+                f"  mkdir -p {init.parent}\n"
+                f"  curl -L -o {init} \\\n"
+                f"    https://upload.wikimedia.org/wikipedia/commons/9/90/"
+                f"RWS_Tarot_00_Fool.jpg")
         img = Image.open(init)
         if img.size != (geo.art_w, geo.art_h):
             print(f"preparing seed: {init.name} {img.width}x{img.height} -> "
