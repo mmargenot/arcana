@@ -417,8 +417,8 @@ def cmd_export_mural(name: str, face: str, scale: int,
 
 
 def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
-           init: Path | None,
-           configs_root: Path, artifacts_root: Path) -> Path:
+           init: Path | None, configs_root: Path, artifacts_root: Path,
+           no_init: bool = False) -> Path:
     """Generate candidate art for one face and write it for review.
 
     The seed image is the point. With no `--init` the deck's source scan is
@@ -442,7 +442,10 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
 
     out = render_dir(name, artifacts_root) / "rd"
     out.mkdir(parents=True, exist_ok=True)
-    if init is None:
+    init_bytes = None
+    if no_init:
+        print(f"no seed: generating from the prompt alone with {gen.seedless_style}")
+    elif init is None:
         try:
             init = retro.fetch_scan(
                 face, render_dir(name, artifacts_root) / "scans" /
@@ -453,21 +456,24 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
     elif not init.exists():
         raise SystemExit(f"no seed image at {init}")
 
-    from arcana.pixelate import pixelate
-    sw, sh = mural.safe_size(geo)
-    img = Image.open(init)
-    if img.size != (sw, sh):
-        print(f"preparing seed: {init.name} {img.width}x{img.height} -> {sw}x{sh}")
-        img = Image.fromarray(pixelate(init, sw, sh))
-    seed_png = out / f"{face}.seed.png"
-    img.convert("RGB").save(seed_png)
-    init_bytes = seed_png.read_bytes()
-    print(f"seed -> {seed_png}")
+    if not no_init:
+        from arcana.pixelate import pixelate
+        sw, sh = mural.safe_size(geo)
+        img = Image.open(init)
+        if img.size != (sw, sh):
+            print(f"preparing seed: {init.name} {img.width}x{img.height} -> {sw}x{sh}")
+            img = Image.fromarray(pixelate(init, sw, sh))
+        seed_png = out / f"{face}.seed.png"
+        img.convert("RGB").save(seed_png)
+        init_bytes = seed_png.read_bytes()
+        print(f"seed -> {seed_png}")
 
     payload = retro.build_payload(gen, geo, pal.for_suit("majors"), prompt=text,
                                   seed=seed, init=init_bytes)
-    print(f"style {gen.style}  {sw}x{sh}  x{gen.candidates}  "
-          f"strength {gen.strength}")
+    style = gen.style if init_bytes else gen.seedless_style
+    sw, sh = mural.safe_size(geo)
+    print(f"style {style}  {sw}x{sh}  x{gen.candidates}"
+          + (f"  strength {gen.strength}" if init_bytes else ""))
     try:
         response = retro.request(payload)
     except retro.GenerationError as e:
@@ -562,9 +568,13 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("deck")
     rd.add_argument("--face", required=True, metavar="KEY",
                     help="face key, e.g. major_00")
-    rd.add_argument("--init", type=Path, metavar="PATH",
-                    help="seed image: a scan at any size (cropped and fitted) or an "
-                         "already-fitted PNG. Default: fetch the face's source scan")
+    seedgrp = rd.add_mutually_exclusive_group()
+    seedgrp.add_argument("--init", type=Path, metavar="PATH",
+                         help="seed image: a scan at any size (cropped and fitted) or an "
+                              "already-fitted PNG. Default: fetch the face's source scan")
+    seedgrp.add_argument("--no-init", action="store_true",
+                         help="generate from the prompt alone, with no seed image "
+                              "(uses generation.yaml's seedless_style)")
     rd.add_argument("--prompt", metavar="TEXT",
                     help="one-off prompt, overriding generation.yaml")
     rd.add_argument("--seed", type=int, metavar="N",
@@ -598,7 +608,7 @@ def main(argv: list[str] | None = None) -> int:
                          args.out, args.configs_root, args.artifacts_root)
     elif args.command == "rd":
         cmd_rd(args.deck, args.face, args.seed, args.prompt, args.init,
-               args.configs_root, args.artifacts_root)
+               args.configs_root, args.artifacts_root, args.no_init)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:

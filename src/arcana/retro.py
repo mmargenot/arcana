@@ -43,11 +43,12 @@ runs the call, not in a deck file or an environment variable box.
 from __future__ import annotations
 
 import base64
-import hashlib
 import io
 import json
 import os
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,6 +72,7 @@ DEFAULTS = {
     "remove_bg": False,
     "knockout_ground": False,
     "style_suffix": "",
+    "seedless_style": "rd_plus__default",
 }
 
 
@@ -92,6 +94,7 @@ class Generation:
     remove_bg: bool
     knockout_ground: bool
     style_suffix: str
+    seedless_style: str
     prompts: dict[str, str]
 
     @classmethod
@@ -108,6 +111,7 @@ class Generation:
                    remove_bg=bool(d["remove_bg"]),
                    knockout_ground=bool(d["knockout_ground"]),
                    style_suffix=str(d["style_suffix"]).strip(),
+                   seedless_style=str(d["seedless_style"]),
                    prompts=dict(d.get("prompts") or {}))
 
     def prompt_for(self, key: str) -> str:
@@ -150,9 +154,13 @@ def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
     invariants without stubbing anything."""
     from arcana.mural import safe_size
     w, h = safe_size(geo)
+    # A transformative style takes the IMAGE as its subject, so without one there
+    # is nothing to transform and the service rejects the call. Seedless work
+    # therefore needs a generative style -- a different job, named separately in
+    # config rather than silently reusing `style`.
     payload: dict = {
         "prompt": prompt,
-        "prompt_style": gen.style,
+        "prompt_style": gen.style if init is not None else gen.seedless_style,
         "width": w,
         "height": h,
         "num_images": gen.candidates,
@@ -190,7 +198,16 @@ def estimate_cost(gen: Generation, geo: Geometry) -> float:
     return per * gen.candidates
 
 
-COMMONS = "https://upload.wikimedia.org/wikipedia/commons"
+# Wikimedia serves the thumbnail endpoint rather than originals, and REQUIRES a
+# descriptive User-Agent: a bare urllib request is answered with 403, and a run
+# of 22 fetches with 429 pointing here. Both were shipped bugs.
+COMMONS_FILEPATH = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+USER_AGENT = "arcana/0.1 (pixel-art card engine; https://github.com/mmargenot/arcana)"
+
+# Width to request. The seed is decimated to ~112px wide, so an original scan is
+# many times more data than the pipeline can use, and asking for it is what
+# earns the rate limit.
+SCAN_WIDTH = 1200
 
 # Wikimedia Commons filenames for the majors, which are what the deck seeds
 # from. The 1909 Rider printing is public domain; these are the scans, not a
@@ -204,22 +221,25 @@ RWS_FILES: dict[str, str] = {
 }
 
 
-def scan_url(face: str) -> str | None:
+def scan_url(face: str, width: int = SCAN_WIDTH) -> str | None:
     """The Commons URL for a face's source scan, or None if we do not know one.
 
-    Commons stores a file under the first one and two hex digits of the md5 of
-    its name, so the path is COMPUTABLE -- no lookup, no API call. That is what
-    lets `arcana rd` fetch a scan itself instead of failing with instructions to
-    go run curl."""
+    `Special:FilePath` resolves a file NAME to its bytes, so no md5 path
+    arithmetic and no API lookup -- and `?width=` gets a thumbnail rather than a
+    multi-megabyte original the pipeline would immediately throw away."""
     fname = RWS_FILES.get(face)
     if not fname:
         return None
-    h = hashlib.md5(fname.encode()).hexdigest()
-    return f"{COMMONS}/{h[0]}/{h[:2]}/{fname}"
+    return f"{COMMONS_FILEPATH}{urllib.parse.quote(fname)}?width={width}"
 
 
-def fetch_scan(face: str, dest: Path) -> Path:
-    """Download a face's source scan if it is not already on disk."""
+def fetch_scan(face: str, dest: Path, *, attempts: int = 4) -> Path:
+    """Download a face's source scan if it is not already on disk.
+
+    Wikimedia answers an unidentified client with 403 and a burst of requests
+    with 429, so this sends a descriptive User-Agent, asks for a thumbnail, and
+    backs off. Fetching 22 majors in a row is exactly the burst they mean.
+    """
     if dest.exists():
         return dest
     url = scan_url(face)
@@ -228,11 +248,23 @@ def fetch_scan(face: str, dest: Path) -> Path:
             f"no known source scan for face {face!r} — pass --init with an "
             f"image to seed from")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with urllib.request.urlopen(url, timeout=120) as r:
-            dest.write_bytes(r.read())
-    except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        raise GenerationError(f"could not fetch {url}: {e}")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                dest.write_bytes(r.read())
+            return dest
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < attempts - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise GenerationError(
+                f"could not fetch {url}: {e}"
+                + (" — Wikimedia is rate-limiting this address; wait a few "
+                   "minutes or pass --init with a local scan" if e.code == 429
+                   else ""))
+        except urllib.error.URLError as e:
+            raise GenerationError(f"could not fetch {url}: {e}")
     return dest
 
 

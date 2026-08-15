@@ -27,6 +27,12 @@ strength: 0.35
 
 candidates: 4
 
+# Style used when there is NO seed (`arcana rd --no-init`). A transformative
+# style takes the input image as its subject, so without one the service has
+# nothing to work from and refuses the call — generating from the prompt alone
+# is a different job and names its own style.
+seedless_style: rd_plus__default
+
 # THE GROUND. A mural is an image laid on a field, and the field is what paints
 # the card's background — so if the art carries its own opaque sky, the two
 # backgrounds meet at a visible rectangle. Make the ground transparent and the
@@ -52,18 +58,6 @@ candidates: 4
 remove_bg: false
 knockout_ground: false
 
-# Subject only, and TERSE. With a pixelate style the input image is the subject;
-# the prompt is an anchor that stops drift, not a description to render. A long
-# narrative prompt invites invention -- extra props, a drawn frame, a vignette.
-#
-# NEVER write "pixel art": the style handles rendering, and saying it tends to
-# produce a picture *of* pixel art.
-#
-# Border cruft cannot be prompted away -- the API's `negative` field exists but
-# current models ignore it. Two things handle it instead: the seed is cropped to
-# the picture area so RWS's own printed frame and title band never reach the
-# model, and `import-mural` warns when the result puts heavy line work in the
-# margin the deck's frame will cover.
 # Style, appended to every subject below. Written ONCE because it is the deck's
 # look, not the card's — 22 prompts each carrying their own style adjectives is
 # how 22 cards stop matching. Push toward a chunkier read: flat fills, bold
@@ -78,5 +72,84 @@ style_suffix: >-
   flat blocks of solid colour, heavy dark outlines, minimal shading,
   simplified shapes, high contrast
 
+# Each major names its EMBLEMS — the things that make it that card — and names
+# each one in the colour word of the BANK it should land in. That is what makes
+# the result glyphable: the art arrives already organised into banks, instead of
+# nearest-colour deciding afterwards and scattering them.
+#
+#   violet    border  architecture, thrones, pillars, robes  (hue 264)
+#   teal      field   sky, water, background strata          (hue 195)
+#   magenta   motif   props and accents                      (hue 332)
+#   warm tan  figure  flesh; and wood, gold, flame           (hue  19)
+#   white     paper   roses, bones, stars, white horses
+#
+# Change a bank's hue in palette.yaml and these words go stale — a test pins
+# them, so that fails loudly instead of drifting.
 prompts:
-  major_00: the fool, a traveller at a cliff edge with a white dog and a rose
+  major_00: >-
+    a youth stepping from a cliff edge, white rose in one hand, knapsack on a
+    staff, small white dog at the heels, teal sky, warm tan crags, magenta
+    blossoms on the tunic
+  major_01: >-
+    a magician at a violet table, one arm raised with a wand, cup sword wand and
+    coin before him, magenta roses and white lilies, teal sky
+  major_02: >-
+    a veiled priestess seated between two violet pillars, white crescent at her
+    feet, scroll in her lap, teal veil of magenta pomegranates
+  major_03: >-
+    a crowned empress on a cushioned violet throne, white stars in her crown,
+    warm tan wheat before her, teal waterfall, magenta shield
+  major_04: >-
+    a bearded emperor on a violet stone throne with ram heads, warm tan sceptre
+    and orb, magenta robe, teal sky over bare peaks
+  major_05: >-
+    a hierophant between two violet pillars, triple white crown, warm tan staff,
+    two small figures below, magenta robe, crossed white keys
+  major_06: >-
+    a man and a woman below a winged figure, warm tan sun above, teal mountain,
+    magenta flames in one tree, white serpent coiled in the other
+  major_07: >-
+    a charioteer in a violet canopy of white stars, two sphinxes black and
+    white, teal sky, warm tan city wall, magenta crescents at the shoulders
+  major_08: >-
+    a woman closing a warm tan lion's jaws, white infinity above her head,
+    magenta flower garland, teal sky, violet mountain behind
+  major_09: >-
+    a hooded hermit on a peak, warm tan lantern holding a white star, long
+    staff, teal night sky, violet robe
+  major_10: >-
+    a great violet wheel in a teal sky, white sphinx above it, magenta serpent
+    descending, four winged creatures reading white books at the corners
+  major_11: >-
+    a crowned figure seated between violet pillars, white upright sword, warm
+    tan scales, magenta robe, teal veil behind
+  major_12: >-
+    a figure hung by one ankle from a warm tan living cross, legs crossed, white
+    halo about the head, teal sky, violet tunic
+  major_13: >-
+    a skeleton in violet armour riding a white horse, black banner with a white
+    rose, teal river, warm tan towers with the sun rising between them
+  major_14: >-
+    a winged figure pouring between two warm tan cups, one foot in a teal pool,
+    magenta irises on the bank, white robe, violet path to distant peaks
+  major_15: >-
+    a horned figure on a violet pedestal, warm tan torch inverted, magenta
+    chains, two small figures bound below, teal dark behind
+  major_16: >-
+    a violet stone tower struck by lightning, white crown tumbling from its top,
+    two figures falling, magenta flames, teal night sky
+  major_17: >-
+    a kneeling figure pouring two warm tan vessels into a teal pool and onto the
+    land, one great white star and seven small, magenta bird in the tree
+  major_18: >-
+    a white moon with a face over two violet towers, warm tan dog and wolf
+    howling, magenta crayfish rising from a teal pool, pale path between
+  major_19: >-
+    a great warm tan sun with a face, a child on a white horse, magenta
+    sunflowers over a violet wall, teal sky
+  major_20: >-
+    a winged figure sounding a warm tan trumpet, white banner with a cross,
+    figures rising with arms raised, teal water, violet peaks
+  major_21: >-
+    a dancing figure within a magenta wreath, two warm tan wands, teal sky, four
+    creatures at the corners — winged figure, eagle, bull and lion

@@ -137,15 +137,40 @@ def test_strength_holds_the_composition(ctx):
     assert 0.0 < gen.strength <= 0.5, gen.strength
 
 
-def test_prompts_are_anchors_not_descriptions(ctx):
-    """With a pixelate style the seed is the subject; a long narrative prompt
-    invites the invention this whole path is trying to avoid -- extra props, a
-    drawn frame, a vignette. The cap is on the SUBJECT only: style adjectives
-    live in the deck-wide suffix, so lengthening the look does not lengthen
-    every card's prompt."""
+def test_every_major_has_a_prompt(ctx):
+    """All 22, or a run stops partway with a face nobody wrote a subject for."""
+    from arcana.mural import MAJOR_KEYS
+    _, _, gen = ctx
+    assert set(MAJOR_KEYS) <= set(gen.prompts), sorted(set(MAJOR_KEYS) - set(gen.prompts))
+
+
+def test_prompts_are_emblems_and_banks_not_narrative(ctx):
+    """A prompt lists the card's emblems and the bank each should land in. It is
+    not a scene description: with a pixelate style the seed is the subject, and
+    prose invites the invention this path exists to avoid. Style adjectives are
+    not counted here at all -- they live in the deck-wide suffix."""
     _, _, gen = ctx
     for key, text in gen.prompts.items():
-        assert len(text.split()) <= 20, f"{key}: {len(text.split())} words"
+        assert len(text.split()) <= 45, f"{key}: {len(text.split())} words"
+
+
+def test_prompt_colour_words_still_match_the_palette(ctx):
+    """The prompts name banks by hue -- "violet stone", "teal sky" -- so they are
+    COUPLED to palette.yaml. Recolour a bank and every prompt is quietly wrong,
+    describing a deck that no longer exists. Pin the words to the actual hues so
+    that edit fails here instead of surfacing 22 bad generations later."""
+    import colorsys
+    pal, _, gen = ctx
+    expected = {"border": ("violet", 240, 290), "field": ("teal", 170, 215),
+                "motif": ("magenta", 310, 350), "figure": ("warm tan", 5, 45)}
+    corpus = " ".join(gen.prompts.values()).lower()
+    for bank, (word, lo, hi) in expected.items():
+        hexc = pal.banks[bank].mid
+        r, g, b = (int(hexc[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        hue = colorsys.rgb_to_hls(r, g, b)[0] * 360
+        assert lo <= hue <= hi, (
+            f"{bank} is {hexc} (hue {hue:.0f}) but the prompts call it {word!r}")
+        assert word in corpus, f"no prompt uses {word!r} for the {bank} bank"
 
 
 def test_style_suffix_is_shared_not_per_card(ctx):
@@ -175,9 +200,24 @@ def test_remove_bg_is_opt_in_and_reaches_the_payload(ctx):
 
 
 def test_scan_url_is_computed_not_looked_up():
-    """Commons stores a file under the first one and two hex digits of the md5
-    of its name, so `arcana rd` can fetch a seed itself rather than failing
-    with instructions to go run curl. Pinned against the verified live path."""
-    assert retro.scan_url("major_00").endswith("/9/90/RWS_Tarot_00_Fool.jpg")
+    """`arcana rd` fetches its own seed rather than failing with instructions to
+    go run curl. Special:FilePath resolves a name to bytes, and `width=` asks
+    for a thumbnail — requesting multi-megabyte originals for 22 cards is what
+    earns a 429."""
+    assert "RWS_Tarot_00_Fool.jpg" in retro.scan_url("major_00")
+    assert "width=" in retro.scan_url("major_00")     # a thumbnail, not the original
     assert len(retro.RWS_FILES) == 22
     assert retro.scan_url("court_cups_queen") is None   # unknown face, not a crash
+
+
+def test_seedless_generation_switches_to_a_generative_style(ctx):
+    """A transformative style takes the input IMAGE as its subject, so with no
+    seed the service has nothing to transform and refuses the call. Generating
+    from the prompt alone is a different job, and says so with its own style."""
+    pal, geo, gen = ctx
+    seeded = retro.build_payload(gen, geo, pal, prompt="x", init=b"png")
+    bare = retro.build_payload(gen, geo, pal, prompt="x")
+    assert seeded["prompt_style"] == gen.style
+    assert bare["prompt_style"] == gen.seedless_style
+    assert gen.seedless_style.startswith(("rd_plus__", "rd_fast__"))
+    assert "input_image" not in bare and "strength" not in bare
