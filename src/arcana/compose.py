@@ -200,14 +200,19 @@ def build_development(palette: Palette, geo: Geometry, els: dict[str, Element],
 
 
 def build_mural(palette: Palette, geo: Geometry, els: dict[str, Element],
-                field_design: str = "plain") -> np.ndarray:
-    """The major-arcana CONTENT: the whole scene as one object. For now it is
-    the field background filling the art window — a documented seam where the
-    `figure`-bank image will paste later (that roadmap item plugs in here)."""
+                field_design: str = "plain", *,
+                image: Element | None = None) -> np.ndarray:
+    """The major-arcana CONTENT: an IMAGE LAID ON A FIELD. The field background
+    fills the art window (its colour swaps with the palette, like any minor);
+    the mural image — the deck's biggest element, per-bank layers like any pip
+    (see arcana.mural) — overlays it, transparent pixels showing the field.
+    `image=None` is the bare field, byte-for-byte the pre-mural output."""
     card = np.zeros((geo.card_h, geo.card_w), np.uint8)
     ox, oy = geo.art_origin
     field = build_field(field_design, geo)
     paste(card, palette.bind(field, "field"), ox, oy)
+    if image is not None:
+        paste(card, image.bind(palette), ox, oy)
     return card
 
 
@@ -293,11 +298,13 @@ def build_major_card(palette: Palette, geo: Geometry, els: dict[str, Element],
                      font: Font, *, top: str | None = None,
                      bottom: str | None = None, field_design: str = "plain",
                      pip_key: str | None = None, med_style: str = "suit",
-                     med_scale: float = 1.0) -> np.ndarray:
-    """A major-arcana card (labeling half): the mural + border + label floating
-    ON TOP of the art, same place as a minor's title. The `figure`-bank image is
-    a later roadmap item — it pastes into the mural (see `build_mural`)."""
-    content = build_mural(palette, geo, els, field_design)
+                     med_scale: float = 1.0,
+                     image: Element | None = None) -> np.ndarray:
+    """A major-arcana card: the mural (an image laid on the field — see
+    `build_mural` and arcana.mural) + border + label floating ON TOP of the
+    art, same place as a minor's title. `image=None` renders the bare field,
+    byte-for-byte the pre-mural card."""
+    content = build_mural(palette, geo, els, field_design, image=image)
     med = build_medallion(els, pip_key, style=med_style, scale=med_scale)
     border = render_border(palette, geo, els["corner"], els["edge"], med)
     label = (palette.bind(build_label(geo, font, top=top, bottom=bottom), "border")
