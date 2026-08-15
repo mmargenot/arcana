@@ -219,13 +219,16 @@ def build_mural(palette: Palette, geo: Geometry, els: dict[str, Element],
     shared full-bleed background (`content_field` — under the frame band's
     ornament on all four sides, so the title floats on it). The mural image —
     the deck's biggest element, per-bank layers like any pip (see
-    arcana.mural) — overlays it at the art origin, transparent pixels showing
-    the field. `image=None` is the bare full-bleed field."""
+    arcana.mural) — overlays it in the IMAGE BOX (`mural.image_box`: inside
+    the frame band on the sides, where the wider art window would run under
+    the dentils), transparent pixels showing the field. `image=None` is the
+    bare full-bleed field."""
+    from arcana.mural import image_box
     card = np.zeros((geo.card_h, geo.card_w), np.uint8)
-    ox, oy = geo.art_origin
+    bx, by, _, _ = image_box(geo)
     content_field(card, palette, geo, field_design)
     if image is not None:
-        paste(card, image.bind(palette), ox, oy)
+        paste(card, image.bind(palette), bx, by)
     return card
 
 

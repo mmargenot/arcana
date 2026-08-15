@@ -14,7 +14,7 @@ config to the render pipeline and writes the results.
     arcana import-mural <deck> <png>     quantize external pixel art (Retro
         --major N [--force]              Diffusion output, edited exports...)
                                          into a major's committed mural layers
-    arcana export-mural <deck> --major N render a major's mural (art window
+    arcana export-mural <deck> --major N render a major's mural (image box
                                          only) to RGB PNG, for external tools;
                                          the exact inverse of import-mural
     arcana seed <deck>                   (re)write placeholder tiles only
@@ -247,9 +247,18 @@ def cmd_import_mural(name: str, png: Path, major: int,
         g = quantize_rgb_global(png, pal.for_suit("majors"), tolerance, force)
     except AssetError as e:
         raise SystemExit(str(e))
-    if g.shape != (geo.art_h, geo.art_w):
-        raise SystemExit(f"{png.name} is {g.shape[1]}x{g.shape[0]}, the art "
-                         f"window is {geo.art_w}x{geo.art_h}")
+    _, _, bw, bh = mural.image_box(geo)
+    if g.shape == (geo.art_h, geo.art_w):
+        # art-window-sized input: cut the side overlap so the image fits
+        # inside the repeating border motif (the box IS the mural size)
+        trim = (geo.art_w - bw) // 2
+        g = g[:, trim:geo.art_w - trim]
+        print(f"note: {png.name} is art-window-sized; trimmed {trim}px per "
+              f"side to the {bw}x{bh} image box")
+    elif g.shape != (bh, bw):
+        raise SystemExit(f"{png.name} is {g.shape[1]}x{g.shape[0]}, the mural "
+                         f"image box is {bw}x{bh} (art-window-sized "
+                         f"{geo.art_w}x{geo.art_h} is accepted and side-trimmed)")
     dest = out or config_dir(name, configs_root) / "murals"
     dest.mkdir(parents=True, exist_ok=True)
     s = mural.stem(major)
@@ -274,9 +283,9 @@ def cmd_import_mural(name: str, png: Path, major: int,
 def cmd_export_mural(name: str, major: int, scale: int,
                      out: Path | None, configs_root: Path,
                      artifacts_root: Path) -> Path:
-    """A major's mural as a plain RGB PNG — exactly the card's art window
-    (image laid on the field), for editing in any external tool or feeding a
-    generative model as an init image. Re-import the result with
+    """A major's mural as a plain RGB PNG — exactly the card's mural image
+    box (image laid on the field), for editing in any external tool or
+    feeding a generative model as an init image. Re-import the result with
     `import-mural`; a round trip is index-lossless."""
     deck = load_deck(name, configs_root)
     pal, geo, cfg = deck.palette, deck.geometry, deck.config
@@ -288,8 +297,8 @@ def cmd_export_mural(name: str, major: int, scale: int,
     fname = field.field_for_suit(cfg, "majors", None)
     from arcana.compose import build_mural as _build_mural
     m = _build_mural(pal, geo, {}, fname, image=image)
-    ox, oy = geo.art_origin
-    window = m[oy:oy + geo.art_h, ox:ox + geo.art_w]
+    bx, by, bw, bh = mural.image_box(geo)
+    window = m[by:by + bh, bx:bx + bw]
     rgb = pal.for_suit("majors").render(window)
     dest = out or (render_dir(name, artifacts_root) / "murals" /
                    f"{mural.stem(major)}.png")
@@ -298,7 +307,7 @@ def cmd_export_mural(name: str, major: int, scale: int,
     if scale > 1:
         img = img.resize((img.width * scale, img.height * scale), Image.NEAREST)
     img.save(dest)
-    print(f"wrote {dest}  ({geo.art_w}x{geo.art_h} at {scale}x)")
+    print(f"wrote {dest}  ({bw}x{bh} at {scale}x)")
     return dest
 
 
@@ -350,7 +359,9 @@ def build_parser() -> argparse.ArgumentParser:
     im = sub.add_parser("import-mural",
                         help="quantize an external RGB image into a major's mural layers")
     im.add_argument("deck")
-    im.add_argument("png", type=Path, help="RGB/RGBA image, art-window sized")
+    im.add_argument("png", type=Path,
+                    help="RGB/RGBA image, image-box sized (art-window sized "
+                         "input is side-trimmed)")
     im.add_argument("--major", type=int, required=True, metavar="N",
                     help="major number 0-21")
     im.add_argument("--tolerance", type=float, default=24.0, metavar="F",
@@ -361,7 +372,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write layers here instead of the deck's murals dir")
 
     ex = sub.add_parser("export-mural",
-                        help="render a major's mural (art window only) to an RGB PNG")
+                        help="render a major's mural (image box only) to an RGB PNG")
     ex.add_argument("deck")
     ex.add_argument("--major", type=int, required=True, metavar="N",
                     help="major number 0-21")
