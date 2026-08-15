@@ -31,7 +31,7 @@ candidates: 4
 # style takes the input image as its subject, so without one the service has
 # nothing to work from and refuses the call — generating from the prompt alone
 # is a different job and names its own style.
-seedless_style: rd_plus__default
+seedless_style: rd_plus__item_sheet
 
 # THE GROUND. A mural is an image laid on a field, and the field is what paints
 # the card's background — so if the art carries its own opaque sky, the two
@@ -55,101 +55,107 @@ seedless_style: rd_plus__default
 # field paints it. Use it for art that should carry no sky of its own. It is
 # destructive — a night sky or a pool painted in field-bank tones is background
 # that should stay — so regrounding is the default.
-remove_bg: false
+remove_bg: true
 knockout_ground: false
 
 # Style, appended to every subject below. Written ONCE because it is the deck's
-# look, not the card's — 22 prompts each carrying their own style adjectives is
-# how 22 cards stop matching. Push toward a chunkier read: flat fills, bold
-# outlines, and few tones per shape all reduce the fussy dithered detail a model
-# reaches for by default.
+# look, not the card's.
 #
-# Still no "pixel art" here: the style handles rendering, and naming it tends to
-# produce a picture *of* pixel art. The stronger lever for chunkiness is not
-# words at all — it is generating on a smaller grid and scaling up by an integer
-# — so if this reads too fine, halve the generation size before adding adjectives.
+# EMBLEM, NOT SCENE. Each card is one symbolic object floating on nothing — the
+# card's attribute rather than its tableau. This is why the seeded path fought
+# us: an RWS scan hands the model a figure in a landscape and asks it to hold
+# that composition, which is the opposite of an emblem. Emblems want --no-init.
+#
+# TRANSPARENT GROUND. With no scenery there is nothing to lose to background
+# removal, so `remove_bg` is finally the right tool rather than a risk — and a
+# transparent ground is what lets the card's own field, frame and palette carry
+# the look instead of the art fighting them.
 style_suffix: >-
-  flat blocks of solid colour, heavy dark outlines, minimal shading,
-  simplified shapes, high contrast
+  a single isolated emblem on a fully transparent background, no scenery and no
+  horizon, thick dark outline, flat blocks of solid colour, generous empty
+  margins, symmetrical, high contrast
 
-# Each major names its EMBLEMS — the things that make it that card — and names
-# each one in the colour word of the BANK it should land in. That is what makes
-# the result glyphable: the art arrives already organised into banks, instead of
-# nearest-colour deciding afterwards and scattering them.
+# ONE EMBLEM PER CARD, carrying that card's symbols — the attribute rather than
+# the scene. Each element is named in the colour word of the BANK it should land
+# in, so the art arrives already organised into banks instead of nearest-colour
+# scattering them afterwards:
 #
-#   violet    border  architecture, thrones, pillars, robes  (hue 264)
-#   teal      field   sky, water, background strata          (hue 195)
-#   magenta   motif   props and accents                      (hue 332)
-#   warm tan  figure  flesh; and wood, gold, flame           (hue  19)
-#   white     paper   roses, bones, stars, white horses
+#   violet    border  architecture, thrones, pillars, altars   (hue 264)
+#   teal      field   water, rivers, pools                     (hue 195)
+#   magenta   motif   props and accents                        (hue 332)
+#   warm tan  figure  wood, gold, flame, bone, beasts          (hue  19)
+#   white     paper   roses, stars, bones, ribbons
 #
 # Change a bank's hue in palette.yaml and these words go stale — a test pins
 # them, so that fails loudly instead of drifting.
+#
+# Only the Magician (altar) and the Devil (half-cube pedestal) are traditionally
+# raised on one; the sovereigns get thrones. The other sixteen float, and are
+# written that way.
 prompts:
   major_00: >-
-    a youth stepping from a cliff edge, white rose in one hand, knapsack on a
-    staff, small white dog at the heels, teal sky, warm tan crags, magenta
-    blossoms on the tunic
+    a warm tan staff carrying a white bindle, a white five-petalled rose held
+    out, a small white dog leaping, magenta blossoms
   major_01: >-
-    a magician at a violet table, one arm raised with a wand, cup sword wand and
-    coin before him, magenta roses and white lilies, teal sky
+    a violet altar table bearing a white cup, a warm tan coin, a white sword and
+    a warm tan wand, a magenta infinity sign above it
   major_02: >-
-    a veiled priestess seated between two violet pillars, white crescent at her
-    feet, scroll in her lap, teal veil of magenta pomegranates
+    a white scroll between two violet pillars, a white crescent moon lying
+    below, magenta pomegranates on a teal veil
   major_03: >-
-    a crowned empress on a cushioned violet throne, white stars in her crown,
-    warm tan wheat before her, teal waterfall, magenta shield
+    a white crown of twelve stars above a warm tan sheaf of wheat, a magenta
+    venus sigil, a violet cushioned throne
   major_04: >-
-    a bearded emperor on a violet stone throne with ram heads, warm tan sceptre
-    and orb, magenta robe, teal sky over bare peaks
+    a violet stone throne with warm tan ram heads at its arms, a warm tan ankh
+    sceptre and a white orb crossed above it
   major_05: >-
-    a hierophant between two violet pillars, triple white crown, warm tan staff,
-    two small figures below, magenta robe, crossed white keys
+    a white triple crown above two crossed white keys, a warm tan staff with a
+    triple cross, flanked by two violet pillars
   major_06: >-
-    a man and a woman below a winged figure, warm tan sun above, teal mountain,
-    magenta flames in one tree, white serpent coiled in the other
+    two white rings beneath a warm tan sun, magenta flames rising in one tree, a
+    white serpent coiled about the other
   major_07: >-
-    a charioteer in a violet canopy of white stars, two sphinxes black and
-    white, teal sky, warm tan city wall, magenta crescents at the shoulders
+    a violet chariot car under a canopy of white stars, two sphinxes one black
+    one white, magenta crescents at its corners
   major_08: >-
-    a woman closing a warm tan lion's jaws, white infinity above her head,
-    magenta flower garland, teal sky, violet mountain behind
+    a warm tan lion's head wreathed in a magenta flower garland, a white
+    infinity sign above it
   major_09: >-
-    a hooded hermit on a peak, warm tan lantern holding a white star, long
-    staff, teal night sky, violet robe
+    a warm tan lantern holding a white six-pointed star, a long violet staff
+    crossed behind it
   major_10: >-
-    a great violet wheel in a teal sky, white sphinx above it, magenta serpent
-    descending, four winged creatures reading white books at the corners
+    a great violet wheel lettered ROTA, a white sphinx couchant above it, a
+    magenta serpent descending, a warm tan jackal rising
   major_11: >-
-    a crowned figure seated between violet pillars, white upright sword, warm
-    tan scales, magenta robe, teal veil behind
+    a white upright sword crossed with warm tan scales, a violet crown between
+    them, magenta veil behind
   major_12: >-
-    a figure hung by one ankle from a warm tan living cross, legs crossed, white
-    halo about the head, teal sky, violet tunic
+    a warm tan living T-cross of wood, a white rope, a white halo hanging
+    beneath it, magenta leaves
   major_13: >-
-    a skeleton in violet armour riding a white horse, black banner with a white
-    rose, teal river, warm tan towers with the sun rising between them
+    a white skull in violet armour, a black banner bearing a white five-petalled
+    rose, a warm tan bone scythe
   major_14: >-
-    a winged figure pouring between two warm tan cups, one foot in a teal pool,
-    magenta irises on the bank, white robe, violet path to distant peaks
+    two warm tan cups pouring one into the other, a teal stream between them,
+    magenta irises, a white triangle within a square
   major_15: >-
-    a horned figure on a violet pedestal, warm tan torch inverted, magenta
-    chains, two small figures bound below, teal dark behind
+    a violet half-cube pedestal, a magenta inverted pentagram above it, a warm
+    tan torch held downward, white chains hanging
   major_16: >-
-    a violet stone tower struck by lightning, white crown tumbling from its top,
-    two figures falling, magenta flames, teal night sky
+    a violet tower struck by white lightning, a magenta crown tumbling from its
+    top, warm tan flames, white yods falling
   major_17: >-
-    a kneeling figure pouring two warm tan vessels into a teal pool and onto the
-    land, one great white star and seven small, magenta bird in the tree
+    a great white eight-pointed star with seven smaller, two warm tan vessels
+    pouring teal water, a magenta ibis
   major_18: >-
-    a white moon with a face over two violet towers, warm tan dog and wolf
-    howling, magenta crayfish rising from a teal pool, pale path between
+    a white crescent moon with a face, two violet towers, magenta yods falling,
+    a warm tan crayfish in teal water
   major_19: >-
-    a great warm tan sun with a face, a child on a white horse, magenta
-    sunflowers over a violet wall, teal sky
+    a great warm tan sun with a face and magenta rays, four magenta sunflowers,
+    a white banner
   major_20: >-
-    a winged figure sounding a warm tan trumpet, white banner with a cross,
-    figures rising with arms raised, teal water, violet peaks
+    a warm tan trumpet with a white banner bearing a magenta cross, three white
+    figures rising, teal water below
   major_21: >-
-    a dancing figure within a magenta wreath, two warm tan wands, teal sky, four
-    creatures at the corners — winged figure, eagle, bull and lion
+    a magenta laurel wreath bound with white ribbons, two warm tan wands
+    crossed, four white creatures at its corners
