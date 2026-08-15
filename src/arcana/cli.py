@@ -310,10 +310,12 @@ def cmd_import_mural(name: str, png: Path, face: str,
             f"(what `arcana rd` generates)")
     from arcana.retro import Generation
     gen = Generation.load(config_dir(name, configs_root) / "generation.yaml")
-    if gen.knockout_ground:
-        # the art's own sky becomes transparent so the card's field shows there
-        # instead — no seam where the two backgrounds would otherwise meet
-        g = mural.knockout_ground(g)
+    # The mural's ground and the card's field must agree, or they meet at a
+    # visible rectangle. `reground` moves the ground into the field bank at its
+    # existing value rung — same shape, same values, right hue family, and it
+    # recolours with the palette from then on. `knockout_ground` is the stronger
+    # form for art that should carry no sky at all.
+    g = mural.knockout_ground(g) if gen.knockout_ground else mural.reground(g)
     if not bleed:
         g = mural.fit_safe(g, geo)
     dest = out or config_dir(name, configs_root) / "murals"

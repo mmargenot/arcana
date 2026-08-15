@@ -447,3 +447,48 @@ def test_knockout_ground_ignores_small_edge_regions(ctx):
     out = mural.knockout_ground(g)
     assert (out[0:6, 0:6] == speck).all()
     assert (out[100, 70] == 0)                    # the sky still went
+
+
+def test_reground_moves_the_sky_to_the_field_bank_at_its_rung(ctx):
+    """Background is a BANK, not a colour. A quantiser that files the sky under
+    `figure` (a warm source sky lands in the flesh ramp) puts the mural's ground
+    in a different hue family from the card's field mat, and they meet at a
+    visible rectangle. Reground fixes it in bank space — and the value rung
+    survives, because every bank is held to the same rungs."""
+    _, geo, _, _ = ctx
+    fig = 3 + 3 * BANKS.index("figure")
+    fld = 3 + 3 * BANKS.index("field")
+    g = np.full((geo.art_h, geo.art_w), fig + 2, np.uint8)      # figure.light sky
+    g[60:160, 40:100] = LINE                                     # a figure
+    out = mural.reground(g)
+    assert (out[0, 0], out[-1, -1]) == (fld + 2, fld + 2)        # -> field.light
+    assert (out[60:160, 40:100] == LINE).all()                   # figure untouched
+
+
+def test_reground_is_idempotent_and_keeps_dark_ground_dark(ctx):
+    """Art whose ground is already field-bank is left alone, and a dark ground
+    stays dark — the rung is preserved, not normalised to one slot."""
+    _, geo, _, _ = ctx
+    fld = 3 + 3 * BANKS.index("field")
+    dark = np.full((geo.art_h, geo.art_w), fld, np.uint8)        # field.dark night
+    assert np.array_equal(mural.reground(dark), dark)
+
+    mot = 3 + 3 * BANKS.index("motif")
+    g = np.full((geo.art_h, geo.art_w), mot, np.uint8)           # motif.DARK ground
+    once = mural.reground(g)
+    assert (once == fld).all()                                   # -> field.DARK
+    assert np.array_equal(mural.reground(once), once)
+
+
+def test_reground_tints_rather_than_erases_on_a_leak(ctx):
+    """The reason reground is preferred over knockout. If the flood leaks
+    through a gap in the outline it recolours the figure — visible at a glance —
+    where a knockout would silently delete it."""
+    _, geo, _, _ = ctx
+    fig = 3 + 3 * BANKS.index("figure")
+    g = np.full((geo.art_h, geo.art_w), fig + 2, np.uint8)
+    g[60:160, 40:100] = LINE
+    g[100:104, 40:100] = fig + 2                  # a gap: sky leaks into the figure
+    leaked = (mural.reground(g)[100:104, 40:100] != 0).all()
+    erased = (mural.knockout_ground(g)[100:104, 40:100] == 0).all()
+    assert leaked and erased

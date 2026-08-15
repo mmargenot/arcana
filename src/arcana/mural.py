@@ -226,40 +226,30 @@ def fit_safe(m: np.ndarray, geo: Geometry) -> np.ndarray:
     return out
 
 
-def knockout_ground(m: np.ndarray, *, min_frac: float = 0.05) -> np.ndarray:
-    """Map the art's own background to transparent, so the card's FIELD shows
-    through it instead.
+def find_ground(m: np.ndarray, *, min_frac: float = 0.05) -> np.ndarray:
+    """Boolean mask of the art's own background: the sky, the ground it stands
+    on, whatever large flat region runs off the edges.
 
-    This is the composition model this module already describes -- "an image
-    laid on a field", where the image's transparent pixels show the field, so a
-    card's sky is the field colour and recolours with the palette. Imported art
-    could never honour it: `quantize_rgb_global` only maps real alpha to index
-    0, and a generated PNG is opaque everywhere, so the art painted its own sky
-    and it met the field mat at a visible rectangle. Knocking the ground out
-    makes the seam impossible -- the sky IS the mat, one set of pixels -- and
-    the sky then inherits whatever `field_designs` says.
-
-    Background is found by flooding inward from the border, with two guards
-    that are measured, not tasteful:
+    Found by flooding inward from the border, with two guards that are measured,
+    not tasteful:
 
       * NEVER line or paper. On the reference Fool 42.5% of the border pixels
         are `line`, and the figure's outline is contiguous with them, so an
-        unguarded flood walks the outline inward and dissolves the figure --
+        unguarded flood walks the outline inward and takes the figure with it --
         69.9% of the window against 43.3% with the guard, which is the sky.
       * Only components covering at least `min_frac` of the window. A sky is
-        large; a shadow touching the edge is not. 5% and 10% give identical
-        results here, so the threshold sits on a plateau rather than a cliff.
+        large; a shadow that happens to touch the edge is not. 5% and 10% give
+        identical results here, so the threshold sits on a plateau, not a cliff.
 
-    Deliberately not automatic: a scene that wants dark strata -- a night sky, a
-    pool -- paints them in field-bank tones on purpose, and this would erase
-    them. The deck opts in.
+    Shared by `reground` and `knockout_ground`, which differ only in what they
+    then DO with these pixels.
     """
     from scipy import ndimage as nd
     h, w = m.shape
     border = np.zeros((h, w), bool)
     border[0] = border[-1] = True
     border[:, 0] = border[:, -1] = True
-    out = m.copy()
+    found = np.zeros((h, w), bool)
     for slot in np.unique(m[border]):
         if slot in (0, LINE, PAPER):
             continue
@@ -267,7 +257,59 @@ def knockout_ground(m: np.ndarray, *, min_frac: float = 0.05) -> np.ndarray:
         for comp_id in set(np.unique(lab[border]).tolist()) - {0}:
             comp = lab == comp_id
             if comp.mean() >= min_frac:
-                out[comp] = 0
+                found |= comp
+    return found
+
+
+def reground(m: np.ndarray, *, min_frac: float = 0.05) -> np.ndarray:
+    """Move the art's background into the FIELD bank, keeping its value rung.
+
+    BACKGROUND IS A BANK, NOT A COLOUR. A mural is an image laid on a field, and
+    the field bank is what paints the card's ground -- so when a quantiser files
+    the sky under `figure` because the source sky was warm, the mural's ground
+    and the card's field mat meet at a visible rectangle. That is a BANK error,
+    and the fix belongs in bank space: reassign those pixels to `field` at the
+    rung they already sit on.
+
+    The rung survives because the palette guarantees it survives: every bank is
+    held to the same three value rungs (L=30/50/74, see palette.yaml), so
+    `figure.light` -> `field.light` changes hue family and nothing else. The sky
+    keeps its shape and its internal value structure; it just stops being flesh.
+
+    PREFERRED OVER `knockout_ground` for two reasons. It keeps the sky, rather
+    than flattening it to whatever the field design paints. And its failure mode
+    is survivable: if the flood leaks through a gap in the outline it TINTS the
+    figure, which you notice at a glance, where a knockout silently erases it.
+
+    It is also what makes a suit-varying face card possible at all. A court's
+    background must recolour between `court_cups_queen` and `court_swords_queen`
+    from one glyph matrix -- that is the whole point of banks -- and a sky filed
+    under `figure` can never do it. Filed under `field`, it is free.
+    """
+    ground = find_ground(m, min_frac=min_frac)
+    if not ground.any():
+        return m
+    base = 3 + 3 * BANKS.index("field")
+    out = m.copy()
+    rung = (m[ground].astype(int) - 3) % 3       # dark/mid/light within its bank
+    out[ground] = (base + rung).astype(np.uint8)
+    return out
+
+
+def knockout_ground(m: np.ndarray, *, min_frac: float = 0.05) -> np.ndarray:
+    """Map the art's background to transparent, so the card's field shows there.
+
+    The stronger form of `reground`: instead of moving the sky into the field
+    bank, remove it, so the sky IS the mat -- one set of pixels, inheriting
+    whatever `field_designs` paints. Use it for art that should have no sky of
+    its own; `reground` is the better default because it keeps one.
+
+    Deliberately not automatic, and destructive: a scene that wants dark strata
+    -- a night sky, a pool -- paints them in field-bank tones on purpose, and
+    this erases them. The deck opts in.
+    """
+    out = m.copy()
+    out[find_ground(m, min_frac=min_frac)] = 0
     return out
 
 
