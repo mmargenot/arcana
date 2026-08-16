@@ -147,11 +147,30 @@ def coherence(path: str | Path, palette) -> dict:
     shapes, and swapping the palette recolours those shapes. Quantising a
     photograph scatters banks pixel by pixel, and a palette swap then recolours
     confetti. Measured on this deck: ~0.3 fragments per 1000px for art built
-    from the palette, against ~220 for a pixelated photograph. Three orders of
-    magnitude, so the threshold does not need to be delicate.
+    from the palette, against ~205 for an RWS scan. Three orders of magnitude,
+    so the threshold does not need to be delicate.
+
+    SCALE BIAS, KNOWN AND TOLERATED. Dividing by area means a small bank scores
+    worse than a large one for the same shape: a single unbroken 88px ring is
+    one component and still scores 11.4, where the same ring at 3800px scores
+    0.3. So "near zero" is only available to art with big regions, and a sparse
+    emblem is doing well in the low tens. The threshold allows for that rather
+    than the metric pretending otherwise.
+
+    CONTIGUOUS MEANS 8-CONNECTED, and that is not a detail. `nd.label` defaults
+    to the 4-connected cross, under which two pixels touching only at a corner
+    are separate regions -- and pixel art is BUILT from corners. A clean 1px
+    diagonal outline, which is one ring to any eye, scores 388 fragments/1000px
+    under 4-connectivity against 5 under 8; a dithered fill scores 1000 against
+    0.5. So the 4-connected number grades stroke width and diagonal content,
+    which is to say it grades the retro flat style itself, and it condemned a
+    perfectly glyphable emblem at 185. Genuinely scattered art is unmoved by the
+    choice -- 90 loose blobs score 101 either way -- so 8-connectivity costs
+    nothing in discrimination and stops punishing the thing we are aiming for.
     """
     from scipy import ndimage as nd
     from arcana.palette import BANKS
+    EIGHT = np.ones((3, 3), int)          # corners count; see the docstring
     path = Path(path)
     rgba = np.array(Image.open(path).convert("RGBA"), np.int32)
     rgb, alpha = rgba[..., :3], rgba[..., 3]
@@ -172,14 +191,18 @@ def coherence(path: str | Path, palette) -> dict:
         ordered = len(present) > 1 and all(a < b for a, b in zip(present, present[1:]))
         region = (idx >= base) & (idx < base + 3)
         n = int(region.sum())
-        per_k = nd.label(region)[1] / (n / 1000) if n > 50 else float("nan")
+        per_k = nd.label(region, EIGHT)[1] / (n / 1000) if n > 50 else float("nan")
         if per_k == per_k:
             frags.append(per_k)
         out[bank] = {"rungs": meds, "ordered": bool(ordered),
                      "used": len(present), "fragments_per_1k": per_k}
+    # `None`, not 0.0. Rung order is a question about a bank that spans two or
+    # more rungs; on deliberately flat art no bank does, so there is nothing to
+    # be right or wrong about. Scoring that 0.0 reported total failure for the
+    # art we were trying to make.
     scored = [v for v in out.values() if v["used"] > 1]
     return {"banks": out,
-            "ordered": sum(v["ordered"] for v in scored) / len(scored) if scored else 0.0,
+            "ordered": sum(v["ordered"] for v in scored) / len(scored) if scored else None,
             "fragments_per_1k": float(np.mean(frags)) if frags else 0.0}
 
 
@@ -212,7 +235,11 @@ def fidelity(path: str | Path, palette) -> dict:
         "mean": float(dist.mean()),
         "p95": float(np.percentile(dist, 95)),
         "max": float(dist.max()),
-        "exact": float((dist < 1.0).mean()),   # share landing on a palette colour
+        # Share landing on a palette colour. `<=`, because a pixel off by one
+        # unit in one channel IS the palette colour -- that is PNG rounding, not
+        # a snap. Under a strict `<` an emblem whose every pixel was on-palette
+        # (mean 0, max 1) reported 76% and read as a quarter-approximation.
+        "exact": float((dist <= 1.0).mean()),
         "colours": int(colours),
     }
 

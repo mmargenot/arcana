@@ -36,7 +36,7 @@ import numpy as np
 from PIL import Image
 
 from arcana.deck import load_deck, assets_dir, config_dir, render_dir, CONFIGS, ARTIFACTS
-from arcana.elements import AssetError, load_all, audit
+from arcana.elements import AssetError, Element, load_all, audit
 from arcana.seed import seed_deck
 from arcana import layout, field, data, mural
 from arcana.text import load_font
@@ -354,10 +354,19 @@ def cmd_import_mural(name: str, png: Path, face: str,
     # only and inverts in the next one.
     coh = coherence(png, pal.for_suit("majors"))
     bad = [b for b, v in coh["banks"].items() if v["used"] > 1 and not v["ordered"]]
+    # `ordered` is None when no bank spans two rungs -- flat art, by design. That
+    # is not 0%: there is no ramp to get wrong.
+    rungs = ("n/a, one rung per bank" if coh["ordered"] is None
+             else f"{coh['ordered']:.0%} of banks hold dark<mid<light")
     print(f"  glyphable:   {coh['fragments_per_1k']:.1f} bank fragments/1000px, "
-          f"{coh['ordered']:.0%} of banks hold dark<mid<light"
-          + (f" — rungs broken in {', '.join(bad)}" if bad else ""))
-    if coh["fragments_per_1k"] > 20:
+          f"{rungs}" + (f" — rungs broken in {', '.join(bad)}" if bad else ""))
+    # 40, from measurement rather than taste. The score divides by bank area, so
+    # a legitimately SMALL bank cannot approach zero however clean it is -- one
+    # unbroken 88px ring scores 11.4. Real failures are an order up: an RWS scan
+    # runs 205, uniform confetti 499, and even 90 loose 3x3 blobs 108. 40 clears
+    # the ceiling for small tidy banks with room to spare and still sits well
+    # under the cheapest genuine failure. Art with big regions runs under 1.
+    if coh["fragments_per_1k"] > 40:
         print("  ! banks are scattered rather than regions, so this will not "
               "survive a palette swap — recolouring confetti, not shapes. Art "
               "built from the palette runs under 1")
@@ -365,9 +374,22 @@ def cmd_import_mural(name: str, png: Path, face: str,
     # all four banks. An unused RUNG is not a fault — on deliberately flat art it
     # is the point, since the generator is handed two tones per bank precisely so
     # it cannot shade. Warning per slot would fire on every card we now want.
+    #
+    # Checked on the mural COMPOSED ON ITS FIELD, which is how the charter is
+    # written (tests/test_mural.py: build_mural, then assert every bank). It
+    # matters: the mat supplies the field bank, so art with a transparent ground
+    # inherits teal without painting any, and demanding teal of the emblem itself
+    # would mean writing water into twenty cards that have none. Border, motif
+    # and figure have no such donor and must come from the art.
     from arcana.palette import BANKS as _BANKS
+    from arcana.compose import build_mural as _bm
+    el = Element(name=face, role="mural", size=g.shape, layers=layers)
+    composed = _bm(pal, geo, {}, field.field_for_suit(deck.config, "majors", None),
+                   image=el)
+    ox, oy = geo.art_origin
+    seen = set(np.unique(composed[oy:oy + geo.art_h, ox:ox + geo.art_w]).tolist())
     bare = [b for i, b in enumerate(_BANKS)
-            if not counts[3 + 3 * i:6 + 3 * i].any()]
+            if not seen & {3 + 3 * i, 4 + 3 * i, 5 + 3 * i}]
     if bare:
         print(f"  ! unused BANK: {', '.join(bare)} — a hue family missing from "
               f"this card entirely")

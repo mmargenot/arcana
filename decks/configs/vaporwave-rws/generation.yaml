@@ -77,11 +77,18 @@ knockout_ground: false
 # removal, so `remove_bg` is finally the right tool rather than a risk — and a
 # transparent ground is what lets the card's own field, frame and palette carry
 # the look instead of the art fighting them.
+#
+# FILLING THE FRAME IS PART OF THE STYLE. This asked for "generous empty
+# margins" and got exactly that: major_00 came back with 2189 opaque pixels of a
+# 112x208 generation — 9.4% coverage, an emblem lost in its own window. The
+# margin the card needs is already cut by generating at the safe size, so asking
+# for more here spends the art on nothing twice. The emblem should run to the
+# edges of what it is given.
 style_suffix: >-
-  a single isolated emblem on a fully transparent background, no scenery and no
-  horizon, thick dark outline, one flat colour per shape, no gradients, no
-  dithering, no highlights, no drop shadows, generous empty margins, high
-  contrast
+  a single isolated emblem filling the whole frame edge to edge, large and
+  centred with only a thin margin, on a fully transparent background, no scenery
+  and no horizon, thick dark outline, one flat colour per shape, no gradients,
+  no dithering, no highlights, no drop shadows, high contrast
 
 # ONE EMBLEM PER CARD, carrying that card's symbols — the attribute rather than
 # the scene. Each element is named in the colour word of the BANK it should land
@@ -97,40 +104,48 @@ style_suffix: >-
 # Change a bank's hue in palette.yaml and these words go stale — a test pins
 # them, so that fails loudly instead of drifting.
 #
+# EVERY PROMPT NAMES VIOLET, MAGENTA AND WARM TAN, because border, motif and
+# figure have no donor but the art — a card whose emblem never paints magenta
+# has no magenta, and the import says so. TEAL IS DIFFERENT and deliberately
+# rare: the card's own mat paints the field bank, so an emblem on a transparent
+# ground inherits teal without spending a shape on it. Majors have plain fields.
+# Teal appears only where the card genuinely holds water — the Star's stream,
+# Temperance's pool, the Moon, Judgement.
+#
 # Only the Magician (altar) and the Devil (half-cube pedestal) are traditionally
 # raised on one; the sovereigns get thrones. The other sixteen float, and are
 # written that way.
 prompts:
   major_00: >-
-    a warm tan staff carrying a white bindle, a white five-petalled rose held
-    out, a small white dog leaping, magenta blossoms
+    a warm tan staff carrying a violet embroidered wallet, a white five-petalled
+    rose held out, a magenta feather upright, a small white dog leaping
   major_01: >-
     a violet altar table bearing a white cup, a warm tan coin, a white sword and
     a warm tan wand, a magenta infinity sign above it
   major_02: >-
-    a white scroll between two violet pillars, a white crescent moon lying
-    below, magenta pomegranates on a teal veil
+    a warm tan scroll lettered TORA between two violet pillars, a white crescent
+    moon lying below, magenta pomegranates on the veil
   major_03: >-
     a white crown of twelve stars above a warm tan sheaf of wheat, a magenta
     venus sigil, a violet cushioned throne
   major_04: >-
-    a violet stone throne with warm tan ram heads at its arms, a warm tan ankh
-    sceptre and a white orb crossed above it
+    a violet stone throne with warm tan ram heads at its arms, a magenta robe
+    draped across it, a warm tan ankh sceptre and a white orb crossed above
   major_05: >-
-    a white triple crown above two crossed white keys, a warm tan staff with a
-    triple cross, flanked by two violet pillars
+    a white triple crown above two crossed white keys, a magenta mantle, a warm
+    tan staff with a triple cross, flanked by two violet pillars
   major_06: >-
-    two white rings beneath a warm tan sun, magenta flames rising in one tree, a
-    white serpent coiled about the other
+    two white rings beneath a warm tan sun, a violet mountain peak between them,
+    magenta flames rising in one tree, a white serpent coiled about the other
   major_07: >-
-    a violet chariot car under a canopy of white stars, two sphinxes one black
-    one white, magenta crescents at its corners
+    a violet chariot car under a canopy of white stars, a warm tan winged disk on
+    its front, magenta crescent epaulettes, two sphinxes one black one white
   major_08: >-
     a warm tan lion's head wreathed in a magenta flower garland, a white
-    infinity sign above it
+    infinity sign above it, a violet mountain behind
   major_09: >-
-    a warm tan lantern holding a white six-pointed star, a long violet staff
-    crossed behind it
+    a warm tan lantern holding a white six-pointed star, a magenta hooded cloak,
+    a long violet staff crossed behind it
   major_10: >-
     a great violet wheel lettered ROTA, a white sphinx couchant above it, a
     magenta serpent descending, a warm tan jackal rising
@@ -138,14 +153,14 @@ prompts:
     a white upright sword crossed with warm tan scales, a violet crown between
     them, magenta veil behind
   major_12: >-
-    a warm tan living T-cross of wood, a white rope, a white halo hanging
-    beneath it, magenta leaves
+    a warm tan living T-cross of wood, a violet tunic, a white rope, a white halo
+    hanging beneath it, magenta foliage crowning the cross
   major_13: >-
-    a white skull in violet armour, a black banner bearing a white five-petalled
-    rose, a warm tan bone scythe
+    a white skull in violet armour, a banner bearing a white five-petalled rose,
+    a warm tan bone scythe, a magenta crown fallen beneath
   major_14: >-
     two warm tan cups pouring one into the other, a teal stream between them,
-    magenta irises, a white triangle within a square
+    magenta irises, a white triangle within a violet square
   major_15: >-
     a violet half-cube pedestal, a magenta inverted pentagram above it, a warm
     tan torch held downward, white chains hanging
@@ -154,16 +169,16 @@ prompts:
     top, warm tan flames, white yods falling
   major_17: >-
     a great white eight-pointed star with seven smaller, two warm tan vessels
-    pouring teal water, a magenta ibis
+    pouring teal water, a magenta ibis on a violet tree
   major_18: >-
     a white crescent moon with a face, two violet towers, magenta yods falling,
     a warm tan crayfish in teal water
   major_19: >-
-    a great warm tan sun with a face and magenta rays, four magenta sunflowers,
-    a white banner
+    a great warm tan sun with a face and magenta rays, four magenta sunflowers
+    over a violet garden wall, a white banner
   major_20: >-
     a warm tan trumpet with a white banner bearing a magenta cross, three white
-    figures rising, teal water below
+    figures rising from violet coffins, teal water below
   major_21: >-
-    a magenta laurel wreath bound with white ribbons, two warm tan wands
-    crossed, four white creatures at its corners
+    a magenta laurel wreath bound with white ribbons, a violet scarf spiralling
+    within it, two warm tan wands crossed, four white creatures at its corners

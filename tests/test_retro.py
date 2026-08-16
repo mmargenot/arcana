@@ -162,6 +162,35 @@ def test_prompt_colour_words_still_match_the_palette(ctx):
         assert word in corpus, f"no prompt uses {word!r} for the {bank} bank"
 
 
+def test_every_prompt_paints_the_banks_the_mat_will_not(ctx):
+    """`import-mural` warns on a bank the finished card never touches, and only
+    the FIELD bank has a donor: the card's own mat paints it, so an emblem on a
+    transparent ground inherits teal for free. Border, motif and figure have no
+    such donor — if the emblem does not paint magenta, the card has no magenta,
+    which is how `major_00` imported with the motif bank empty.
+
+    So teal is checked the other way round. Majors have plain fields, and writing
+    water into twenty cards that have none would spend real shapes buying a bank
+    that was already free."""
+    _, _, gen = ctx
+    for key, text in gen.prompts.items():
+        low = text.lower()
+        for word in ("violet", "magenta", "warm tan"):
+            assert word in low, f"{key} never paints {word}"
+    watery = {k for k, v in gen.prompts.items() if "teal" in v.lower()}
+    assert watery and len(watery) <= 8, sorted(watery)
+
+
+def test_style_asks_the_emblem_to_fill_the_frame(ctx):
+    """This once asked for "generous empty margins" and got them: major_00 came
+    back 9.4% opaque, an emblem lost in its own window. Generating at the safe
+    size already cuts the margin the card needs, so asking again spends the art
+    twice."""
+    _, _, gen = ctx
+    assert "margins" not in gen.style_suffix, gen.style_suffix
+    assert "filling the whole frame" in gen.style_suffix
+
+
 def test_style_suffix_is_shared_not_per_card(ctx):
     """22 prompts each carrying their own style adjectives is how 22 cards stop
     matching. The look is written once and appended to every subject."""

@@ -543,4 +543,65 @@ def test_coherence_catches_art_that_will_not_survive_a_palette_swap(ctx, tmp_pat
     scatter = rng.integers(1, 15, (geo.art_h, geo.art_w)).astype(np.uint8)
     noisy = tmp_path / "scatter.png"
     Image.fromarray(maj.render(scatter)).save(noisy)
-    assert coherence(noisy, maj)["fragments_per_1k"] > 20
+    assert coherence(noisy, maj)["fragments_per_1k"] > 40
+
+
+def test_diagonals_and_dither_are_regions_not_confetti(ctx, tmp_path):
+    """The metric must not grade STROKE WIDTH. `nd.label` defaults to the
+    4-connected cross, under which pixels touching at a corner are separate
+    regions -- and pixel art is built from corners. Both fixtures below are
+    unbroken shapes to any eye and both scored the maximum 1000 fragments/1000px
+    under it, so the report condemned a flat retro emblem that was perfectly
+    glyphable: 5 source colours, every pixel already on a deck colour.
+
+    The pair above never caught it because both are connectivity-blind -- solid
+    axis-aligned bands and uniform noise score the same either way. These two do
+    not, which is the whole point of adding them."""
+    from PIL import Image
+    from arcana.tileio import coherence
+    pal, geo, _, _ = ctx
+    maj = pal.for_suit("majors")
+    yy, xx = np.mgrid[0:geo.art_h, 0:geo.art_w]
+
+    diamonds = np.full((geo.art_h, geo.art_w), PAPER, np.uint8)
+    for i in range(4):                       # one-pixel-thick, entirely diagonal
+        cy = 28 + i * (geo.art_h // 4)
+        diamonds[(np.abs(yy - cy) + np.abs(xx - geo.art_w // 2)) == 22] = 3 + 3 * i + 1
+    thin = tmp_path / "diamonds.png"
+    Image.fromarray(maj.render(diamonds)).save(thin)
+    assert coherence(thin, maj)["fragments_per_1k"] < 40     # 1000 under 4-conn
+
+    dithered = np.full((geo.art_h, geo.art_w), PAPER, np.uint8)
+    for i in range(4):
+        band = ((yy >= i * (geo.art_h // 4) + 8) & (yy < (i + 1) * (geo.art_h // 4) - 8)
+                & (np.abs(xx - geo.art_w // 2) < 40))
+        dithered[band & ((yy + xx) % 2 == 0)] = 3 + 3 * i + 1
+    checks = tmp_path / "dither.png"
+    Image.fromarray(maj.render(dithered)).save(checks)
+    assert coherence(checks, maj)["fragments_per_1k"] < 40    # 1000 under 4-conn
+
+
+def test_rung_order_is_not_a_failure_when_there_is_no_ramp(ctx, tmp_path):
+    """Rung order asks whether a bank's dark/mid/light really were the darks,
+    mids and lights. Flat art puts every bank on ONE rung, so there is no ramp to
+    get wrong -- but the ratio was averaged over an empty list and fell back to
+    0.0, printing "0% of banks hold dark<mid<light" for exactly the art the
+    flatten change exists to produce. None means the question does not apply."""
+    from PIL import Image
+    from arcana.tileio import coherence
+    pal, geo, _, _ = ctx
+    maj = pal.for_suit("majors")
+
+    flat = np.zeros((geo.art_h, geo.art_w), np.uint8)         # mid rung only
+    for i in range(4):
+        flat[i * (geo.art_h // 4):(i + 1) * (geo.art_h // 4)] = 3 + 3 * i + 1
+    one = tmp_path / "flat.png"
+    Image.fromarray(maj.render(flat)).save(one)
+    assert coherence(one, maj)["ordered"] is None
+
+    ramped = flat.copy()                        # give border a real dark/light ramp
+    ramped[:geo.art_h // 8] = 3
+    ramped[geo.art_h // 8:geo.art_h // 4] = 5
+    two = tmp_path / "ramped.png"
+    Image.fromarray(maj.render(ramped)).save(two)
+    assert coherence(two, maj)["ordered"] is not None
