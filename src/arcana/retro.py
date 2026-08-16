@@ -144,7 +144,7 @@ class Generation:
 # silhouette rather than modelling. Drop to (MID,) for one flat tone per bank if
 # anything still reads dimensional. Deliberately a constant rather than config:
 # there is one deck and one aesthetic, and this is a one-line change either way.
-GENERATION_RUNGS = (MID, LIGHT)
+GENERATION_RUNGS = (MID,)
 
 
 def palette_png(pal: Palette, rungs: tuple[int, ...] = GENERATION_RUNGS) -> bytes:

@@ -117,11 +117,12 @@ style_suffix: >-
 # written that way.
 prompts:
   major_00: >-
-    a warm tan staff carrying a violet embroidered wallet, a white five-petalled
-    rose held out, a magenta feather upright, a small white dog leaping
+    a white five-petalled rose in the center, spaced between two open palms on
+    the sides
   major_01: >-
-    a violet altar table bearing a white cup, a warm tan coin, a white sword and
-    a warm tan wand, a magenta infinity sign above it
+    a violet altar table bearing a white cup, a warm tan coin. a white sword and
+    a warm tan wand lie on the table, and a magenta infinity sign sits in the sky
+    above it
   major_02: >-
     a warm tan scroll lettered TORA between two violet pillars, a white crescent
     moon lying below, magenta pomegranates on the veil
