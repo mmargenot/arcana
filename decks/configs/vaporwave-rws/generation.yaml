@@ -4,41 +4,35 @@
 # 22 majors look like one deck — which is why they live here and not behind CLI
 # flags, the same split as pip_layouts and field_designs in deck.yaml.
 #
-# The model is here for SEMANTIC COLOUR, not pixelation. Seeded with an RWS
-# scan it keeps the composition and re-renders it in the deck's palette; a
-# nearest-colour mapping cannot, because it only knows the Fool's aged sky is
-# warm, not that it is a sky.
+# THE MODEL IS HERE FOR A LOOK IT CAN BE SHOWN, not one it can be told. The
+# single most important fact about this API: `input_palette` is applied AFTER
+# generation — the service exposes `return_pre_palette` to hand back the
+# un-quantised image, which only makes sense if quantising is a post-process. So
+# the palette re-maps colours and never once made the model draw flat. What does
+# is `refs/`: RD Pro takes up to nine reference images and is the tier documented
+# for "matching an existing look".
 
 provider: retro-diffusion
 
-# TRANSFORMATIVE, NOT GENERATIVE. The goal is to map an existing RWS card into
-# pixel space 1-to-1, not to generate a new card from a description. Those are
-# different styles: rd_plus__* and rd_fast__* invent a scene from the prompt,
-# while rd_pro__pixelate takes the input image as the subject and re-renders it.
-# Its 64-256px range covers the 144x224 art window.
-style: rd_pro__pixelate
+# GENERATIVE, AND SEEDLESS BY DEFAULT. The old plan was transformative — feed an
+# RWS scan to rd_pro__pixelate and hold its composition. That fought the emblem
+# from the first generation: a scan is a figure in a landscape, and an emblem is
+# one object on nothing. `arcana rd` now generates from the prompt and the
+# references, and `--init` opts back into seeding for the odd card that wants it.
+#
+# rd_pro__default over the cheaper tiers because RD Pro is the ONLY one that
+# accepts reference_images, which is the whole strategy. Its 64-256px range
+# covers the 112x208 safe area. rd_pro__simple is the other candidate and is
+# worth an arm of the comparison; rd_plus__mc_item is the flattest non-Pro style
+# (Minecraft items are outlined icons on transparency) but takes no references.
+style: rd_pro__default
+seedless_style: rd_pro__default
 
-# How far the model may depart from the seed. 0.6 is generative latitude and
-# produces "a card like this one"; low values hold the composition. The old
-# warning that low strength preserves the scan's own colour applied to feeding a
-# RAW scan -- this seed is already reduced, and `input_palette` constrains
-# colour, so holding close is now the safer end. Expect to tune this first.
+# How far the model may depart from a seed. Only consulted when --init is passed,
+# which is now the exception rather than the rule.
 strength: 0.35
 
 candidates: 4
-
-# Style used when there is NO seed (`arcana rd --no-init`). A transformative
-# style takes the input image as its subject, so without one the service has
-# nothing to work from and refuses the call — generating from the prompt alone
-# is a different job and names its own style.
-#
-# It must be a SINGLE-OBJECT style. `item_sheet` was the obvious-looking pick and
-# is exactly wrong: it means what it says and returns a grid of objects. The
-# styles that return one centred thing are rd_fast__game_asset and
-# rd_plus__ui_element (both 64-384px, so they fit the 112x208 window);
-# rd_plus__skill_icon is the truest icon style but caps at 192px, under our
-# height, and rd_pro__inventory_items is 256x256 only.
-seedless_style: rd_fast__game_asset
 
 # THE GROUND. A mural is an image laid on a field, and the field is what paints
 # the card's background — so if the art carries its own opaque sky, the two
@@ -71,7 +65,11 @@ knockout_ground: false
 # EMBLEM, NOT SCENE. Each card is one symbolic object floating on nothing — the
 # card's attribute rather than its tableau. This is why the seeded path fought
 # us: an RWS scan hands the model a figure in a landscape and asks it to hold
-# that composition, which is the opposite of an emblem. Emblems want --no-init.
+# that composition, which is the opposite of an emblem. Seedless is now default.
+#
+# WORDS ARE THE WEAKEST OF THE THREE LEVERS. This suffix asked for "no gradients,
+# no dithering, no highlights" and got shaded emblems anyway. Style and reference
+# images do the work; this only has to avoid contradicting them.
 #
 # TRANSPARENT GROUND. With no scenery there is nothing to lose to background
 # removal, so `remove_bg` is finally the right tool rather than a risk — and a

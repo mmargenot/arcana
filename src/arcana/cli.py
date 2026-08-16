@@ -449,13 +449,19 @@ def cmd_export_mural(name: str, face: str, scale: int,
 
 def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
            init: Path | None, configs_root: Path, artifacts_root: Path,
-           no_init: bool = False) -> Path:
+           style: str | None = None, cost_only: bool = False) -> Path:
     """Generate candidate art for one face and write it for review.
 
-    The seed image is the point. With no `--init` the deck's source scan is
-    FETCHED — the Commons path is computable from the face key, so there is no
-    reason to make you run curl first — then cropped and fitted. `--init` takes
-    a scan you supply at any size, or an already-fitted PNG used as-is.
+    SEEDLESS BY DEFAULT. A scan hands the model a figure in a landscape and asks
+    it to hold that composition, which is the opposite of an emblem — so every
+    major wanted `--no-init` on every call, and a flag you always pass is a
+    default wearing a disguise. `--init` now opts INTO seeding.
+
+    What replaces the seed is the deck's own reference images: RD Pro takes up to
+    nine and is the tier documented for matching an existing look. That is the
+    thing that makes generations resemble the deck, which `input_palette` never
+    could — the service quantises after generating, so the palette re-maps
+    colours but cannot make the model draw flat.
 
     Nothing is imported automatically: choosing a candidate is the one step in
     this pipeline that needs a human, so `import-mural` stays deliberate."""
@@ -465,7 +471,8 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
     if face not in mural.face_keys(cfg):
         raise SystemExit(f"unknown face {face!r}; deck has "
                          f"{', '.join(mural.face_keys(cfg))}")
-    gen = retro.Generation.load(config_dir(name, configs_root) / "generation.yaml")
+    cfg_dir = config_dir(name, configs_root)
+    gen = retro.Generation.load(cfg_dir / "generation.yaml")
     try:
         text = prompt or gen.prompt_for(face)
     except AssetError as e:
@@ -474,20 +481,9 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
     out = render_dir(name, artifacts_root) / "rd"
     out.mkdir(parents=True, exist_ok=True)
     init_bytes = None
-    if no_init:
-        print(f"no seed: generating from the prompt alone with {gen.seedless_style}")
-    elif init is None:
-        try:
-            init = retro.fetch_scan(
-                face, render_dir(name, artifacts_root) / "scans" /
-                (retro.RWS_FILES.get(face) or f"{face}.jpg"))
-        except retro.GenerationError as e:
-            raise SystemExit(str(e))
-        print(f"source scan: {init}")
-    elif not init.exists():
-        raise SystemExit(f"no seed image at {init}")
-
-    if not no_init:
+    if init is not None:
+        if not init.exists():
+            raise SystemExit(f"no seed image at {init}")
         from arcana.pixelate import pixelate
         sw, sh = mural.safe_size(geo)
         img = Image.open(init)
@@ -499,22 +495,35 @@ def cmd_rd(name: str, face: str, seed: int | None, prompt: str | None,
         init_bytes = seed_png.read_bytes()
         print(f"seed -> {seed_png}")
 
+    refs = retro.load_references(cfg_dir)
     payload = retro.build_payload(gen, geo, pal.for_suit("majors"), prompt=text,
-                                  seed=seed, init=init_bytes)
-    style = gen.style if init_bytes else gen.seedless_style
+                                  seed=seed, init=init_bytes, refs=refs,
+                                  style=style, cost_only=cost_only)
     sw, sh = mural.safe_size(geo)
-    print(f"style {style}  {sw}x{sh}  x{gen.candidates}"
+    print(f"style {payload['prompt_style']}  {sw}x{sh}  x{gen.candidates}"
+          f"  refs {len(refs)}"
           + (f"  strength {gen.strength}" if init_bytes else ""))
+    if not refs:
+        print(f"  ! no reference images in {cfg_dir / retro.REFS_DIR} — generating "
+              f"without the deck's own exemplars, which is the strongest signal "
+              f"the service accepts")
     try:
         response = retro.request(payload)
     except retro.GenerationError as e:
         raise SystemExit(str(e))
+    if cost_only:
+        print(f"cost check: {response}")
+        return out
     try:
         images = retro.decode_images(response)
     except retro.GenerationError as e:
         raise SystemExit(str(e))
     for i, png in enumerate(images, 1):
         (out / f"{face}_{i}.png").write_bytes(png)
+    # The un-quantised twin of each candidate. Shaded output has two possible
+    # authors -- the model, or our own palette -- and they need opposite fixes.
+    for i, png in enumerate(retro.decode_pre_palette(response), 1):
+        (out / f"{face}_{i}.pre.png").write_bytes(png)
     print(f"wrote {len(images)} candidate(s) -> {out}\n"
           f"pick one, then: arcana import-mural {name} {out}/{face}_1.png "
           f"--face {face} --force")
@@ -599,17 +608,23 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("deck")
     rd.add_argument("--face", required=True, metavar="KEY",
                     help="face key, e.g. major_00")
-    seedgrp = rd.add_mutually_exclusive_group()
-    seedgrp.add_argument("--init", type=Path, metavar="PATH",
-                         help="seed image: a scan at any size (cropped and fitted) or an "
-                              "already-fitted PNG. Default: fetch the face's source scan")
-    seedgrp.add_argument("--no-init", action="store_true",
-                         help="generate from the prompt alone, with no seed image "
-                              "(uses generation.yaml's seedless_style)")
+    # No --no-init: seedless IS the default now. A scan hands the model a figure
+    # in a landscape and asks it to hold that composition, which is the opposite
+    # of an emblem, so every major wanted --no-init on every call. Seeding is the
+    # exception, so it is the flag.
+    rd.add_argument("--init", type=Path, metavar="PATH",
+                    help="seed the generation from an image: a scan at any size "
+                         "(cropped and fitted) or an already-fitted PNG. Omit to "
+                         "generate from the prompt and the deck's reference images")
     rd.add_argument("--prompt", metavar="TEXT",
                     help="one-off prompt, overriding generation.yaml")
     rd.add_argument("--seed", type=int, metavar="N",
                     help="generation seed, for reproducibility")
+    rd.add_argument("--style", metavar="ID",
+                    help="one-off prompt_style, overriding generation.yaml — for "
+                         "comparing styles without editing config between runs")
+    rd.add_argument("--cost", action="store_true",
+                    help="price this request and exit without generating (free)")
 
     s = sub.add_parser("seed", help="(re)write a deck's placeholder tiles")
     s.add_argument("deck")
@@ -639,7 +654,7 @@ def main(argv: list[str] | None = None) -> int:
                          args.out, args.configs_root, args.artifacts_root)
     elif args.command == "rd":
         cmd_rd(args.deck, args.face, args.seed, args.prompt, args.init,
-               args.configs_root, args.artifacts_root, args.no_init)
+               args.configs_root, args.artifacts_root, args.style, args.cost)
     elif args.command == "seed":
         cmd_seed(args.deck, args.configs_root, args.artifacts_root)
     else:

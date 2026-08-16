@@ -107,15 +107,32 @@ def test_decode_images_rejects_an_unexpected_response():
         retro.decode_images({"images": ["..."]})
 
 
-# --- 1-to-1 mapping, not generation --------------------------------------
-def test_style_is_transformative_not_generative(ctx):
-    """The deck maps existing RWS cards into pixel space; it does not invent
-    new ones. rd_plus__*/rd_fast__* take the prompt as the subject and the
-    input only as a hint -- rd_pro__pixelate/edit take the IMAGE as the
-    subject. Drifting back to a generative style is how 22 cards stop being
-    the same deck."""
+# --- shown a look, not told one -------------------------------------------
+def test_the_style_is_a_tier_that_accepts_reference_images(ctx):
+    """RD Pro is the ONLY tier that takes `reference_images`, and references are
+    the entire strategy: the service quantises after generating, so
+    `input_palette` re-maps colour and can never make the model draw flat. The
+    look has to be shown.
+
+    That makes a downgrade to rd_plus__* or rd_fast__* silently catastrophic —
+    cheaper, still generates, and quietly ignores the nine exemplars that are the
+    reason the output resembles the deck at all. It fails here instead."""
     _, _, gen = ctx
-    assert gen.style in ("rd_pro__pixelate", "rd_pro__edit"), gen.style
+    for style in (gen.style, gen.seedless_style):
+        assert style.startswith("rd_pro__"), (
+            f"{style} is not an RD Pro style, so reference_images would be dropped")
+
+
+def test_generated_size_fits_the_styles_range(ctx):
+    """RD Pro runs 64-256px where Plus and Fast reach 384. The safe area is
+    112x208 and fits, but the margin at the top is 48px — a geometry change that
+    pushed height past 256 would be rejected by the service, and the cheapest
+    place to learn that is here rather than mid-run."""
+    from arcana.mural import safe_size
+    _, geo, gen = ctx
+    w, h = safe_size(geo)
+    lo, hi = (64, 256) if gen.seedless_style.startswith("rd_pro__") else (64, 384)
+    assert lo <= w <= hi and lo <= h <= hi, f"{w}x{h} outside {lo}-{hi}"
 
 
 def test_strength_holds_the_composition(ctx):
@@ -162,21 +179,28 @@ def test_prompt_colour_words_still_match_the_palette(ctx):
         assert word in corpus, f"no prompt uses {word!r} for the {bank} bank"
 
 
-def test_every_prompt_paints_the_banks_the_mat_will_not(ctx):
-    """`import-mural` warns on a bank the finished card never touches, and only
-    the FIELD bank has a donor: the card's own mat paints it, so an emblem on a
-    transparent ground inherits teal for free. Border, motif and figure have no
-    such donor — if the emblem does not paint magenta, the card has no magenta,
-    which is how `major_00` imported with the motif bank empty.
+def test_the_banks_are_painted_across_the_deck_not_on_every_card(ctx):
+    """Only the FIELD bank has a donor — the card's mat paints it, so an emblem on
+    a transparent ground inherits teal for free. Border, motif and figure have to
+    come from the art, which is how `major_00` imported with the motif bank empty.
 
-    So teal is checked the other way round. Majors have plain fields, and writing
+    But that is checked PER DECK here, not per card, because a sparse white emblem
+    is a legitimate card: the reference sheet's own Fool is a white flower with a
+    brown centre and almost no bank at all. Requiring three hues of every prompt
+    forbids that, and forbids it on a GUESS — predicting from the words what the
+    art will contain. `import-mural` already warns per card on the actual pixels,
+    which is the same check made against evidence, so this one stays loose.
+
+    Teal is checked the other way round: majors have plain fields, and writing
     water into twenty cards that have none would spend real shapes buying a bank
-    that was already free."""
+    the mat was giving away."""
     _, _, gen = ctx
-    for key, text in gen.prompts.items():
-        low = text.lower()
-        for word in ("violet", "magenta", "warm tan"):
-            assert word in low, f"{key} never paints {word}"
+    corpus = " ".join(gen.prompts.values()).lower()
+    n = len(gen.prompts)
+    for word in ("violet", "magenta", "warm tan"):
+        painted = sum(word in t.lower() for t in gen.prompts.values())
+        assert painted >= n // 2, f"only {painted}/{n} prompts paint {word}"
+        assert word in corpus
     watery = {k for k, v in gen.prompts.items() if "teal" in v.lower()}
     assert watery and len(watery) <= 8, sorted(watery)
 
@@ -228,28 +252,77 @@ def test_scan_url_is_computed_not_looked_up():
     assert retro.scan_url("court_cups_queen") is None   # unknown face, not a crash
 
 
-def test_seedless_generation_switches_to_a_generative_style(ctx):
-    """A transformative style takes the input IMAGE as its subject, so with no
-    seed the service has nothing to transform and refuses the call. Generating
-    from the prompt alone is a different job, and says so with its own style."""
+def test_a_seedless_run_carries_no_seed_only_fields(ctx):
+    """Seedless is now the DEFAULT, so this is the common path rather than the
+    exception. `strength` is meaningless without an init and sending it anyway
+    invites a service-side default to apply to a text-only run."""
     pal, geo, gen = ctx
     seeded = retro.build_payload(gen, geo, pal, prompt="x", init=b"png")
     bare = retro.build_payload(gen, geo, pal, prompt="x")
     assert seeded["prompt_style"] == gen.style
     assert bare["prompt_style"] == gen.seedless_style
-    assert gen.seedless_style.startswith(("rd_plus__", "rd_fast__"))
     assert "input_image" not in bare and "strength" not in bare
 
 
-def test_seedless_style_returns_one_object_not_a_sheet(ctx):
+def test_the_style_returns_one_object_not_a_sheet(ctx):
     """`item_sheet` and `character_turnaround` mean what they say and return a
-    grid. A face card is one emblem, so the seedless style has to be one of the
-    single-object styles — and one whose size range covers the art window
-    (skill_icon caps at 192px, under our 208)."""
+    grid — we shipped `item_sheet` once and got exactly that. A face card is one
+    emblem, so no style whose name promises several."""
     _, _, gen = ctx
-    assert gen.seedless_style in ("rd_fast__game_asset", "rd_plus__ui_element")
-    assert "sheet" not in gen.seedless_style
-    assert "turnaround" not in gen.seedless_style
+    for style in (gen.style, gen.seedless_style):
+        assert "sheet" not in style and "turnaround" not in style, style
+
+
+def test_references_reach_the_payload_and_respect_the_ceiling(ctx):
+    """Nine is RD Pro's documented maximum, and sending a tenth is a rejected
+    request rather than a silently dropped image. Sending NONE is the failure
+    this whole change exists to prevent, so an empty list must not put an empty
+    key in the body either."""
+    pal, geo, gen = ctx
+    p = retro.build_payload(gen, geo, pal, prompt="x",
+                            refs=[b"a", b"b", b"c"])
+    assert len(p["reference_images"]) == 3
+    over = retro.build_payload(gen, geo, pal, prompt="x",
+                               refs=[bytes([i]) for i in range(20)])
+    assert len(over["reference_images"]) == retro.MAX_REFS == 9
+    assert "reference_images" not in retro.build_payload(gen, geo, pal, prompt="x")
+
+
+def test_the_deck_ships_its_own_exemplars(ctx):
+    """The references are deck identity — committed under configs, not artifacts,
+    because they are hand-supplied input rather than something `arcana`
+    regenerates. Losing them degrades every future generation silently, so their
+    presence is pinned like any other config."""
+    refs = retro.load_references(CONFIG)
+    assert len(refs) == retro.MAX_REFS, f"{len(refs)} reference images"
+    assert all(r.startswith(b"\x89PNG") for r in refs), "references must be PNG"
+
+
+def test_the_un_quantised_twin_is_always_requested(ctx):
+    """A shaded candidate has two possible authors and they need opposite fixes:
+    the model drew it shaded, or our palette flattened a detailed image into
+    stripes. `return_pre_palette` separates those in one comparison, so it is not
+    worth a flag — it is always on."""
+    assert payload(ctx)["return_pre_palette"] is True
+    assert retro.decode_pre_palette({}) == []          # absent is not an error
+    assert retro.decode_pre_palette(
+        {"base64_images_pre_palette": [base64.b64encode(b"x").decode()]}) == [b"x"]
+
+
+def test_cost_check_is_opt_in(ctx):
+    """`check_cost` is a free dry run, which matters at RD Pro prices — but it
+    returns a price INSTEAD of images, so it must never be on by default."""
+    assert "check_cost" not in payload(ctx)
+    assert payload(ctx, cost_only=True)["check_cost"] is True
+
+
+def test_style_override_beats_config_without_editing_it(ctx):
+    """The comparison matrix is several styles over the same card. Without an
+    override that means editing config between runs, which is how a run gets
+    attributed to the wrong style."""
+    pal, geo, gen = ctx
+    p = retro.build_payload(gen, geo, pal, prompt="x", style="rd_pro__simple")
+    assert p["prompt_style"] == "rd_pro__simple" != gen.seedless_style
 
 
 def test_generation_palette_offers_no_room_to_shade(ctx):

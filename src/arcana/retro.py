@@ -140,11 +140,21 @@ class Generation:
 # competing with the palette. Hand it two violets and a shaded violet is not
 # something it can render.
 #
-# Two rungs is the target look: a lit face and a body, form carried by
-# silhouette rather than modelling. Drop to (MID,) for one flat tone per bank if
-# anything still reads dimensional. Deliberately a constant rather than config:
-# there is one deck and one aesthetic, and this is a one-line change either way.
-GENERATION_RUNGS = (MID,)
+# Two rungs: a lit face and a body, form carried by silhouette rather than
+# modelling. It went briefly to (MID,) when the palette was the ONLY thing
+# holding flatness and had to be absolute about it.
+#
+# Reference images changed that trade. The service quantises AFTER generating, so
+# this only ever governed what came BACK -- a detailed, shaded object still
+# arrived and got flattened onto these rungs, which is what fragmented it.
+# References work at the source, on what the model draws. With flatness enforced
+# where it actually originates, the palette can afford a second tone, and the
+# extra tone buys the detail a single flat rung cannot carry.
+#
+# Drop to (MID,) if emblems still read dimensional -- but read the `.pre.png`
+# first, because if the un-quantised image is shaded the fix is the references,
+# not this. A constant rather than config: one deck, one aesthetic.
+GENERATION_RUNGS = (MID, LIGHT)
 
 
 def palette_png(pal: Palette, rungs: tuple[int, ...] = GENERATION_RUNGS) -> bytes:
@@ -170,9 +180,37 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode("ascii")
 
 
+REFS_DIR = "refs"
+MAX_REFS = 9        # RD Pro's documented ceiling
+
+
+def load_references(config_dir: str | Path, limit: int = MAX_REFS) -> list[bytes]:
+    """The deck's own exemplars, for `reference_images`.
+
+    THE LARGEST LEVER WE WERE NOT PULLING. RD Pro is documented as the tier for
+    "matching an existing look" and is the only one that accepts these; every
+    generation before this sent none, and then we wondered why the output did not
+    look like the deck.
+
+    They matter more than the prompt because `input_palette` cannot do this job:
+    the service quantises AFTER generating (which is why `return_pre_palette`
+    exists), so the palette re-maps colours but never makes the model draw flat.
+    Flatness has to be shown, not asked for.
+
+    Sorted by name so the set sent is stable between runs -- an unordered set
+    would make two runs of the same seed differ."""
+    d = Path(config_dir) / REFS_DIR
+    if not d.is_dir():
+        return []
+    return [p.read_bytes() for p in sorted(d.glob("major_*.png"))[:limit]]
+
+
 def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
                   prompt: str, seed: int | None = None,
-                  init: bytes | None = None) -> dict:
+                  init: bytes | None = None,
+                  refs: list[bytes] | None = None,
+                  style: str | None = None,
+                  cost_only: bool = False) -> dict:
     """The request body. Pure -- no network, no key -- so tests can assert the
     invariants without stubbing anything."""
     from arcana.mural import safe_size
@@ -183,14 +221,25 @@ def build_payload(gen: Generation, geo: Geometry, pal: Palette, *,
     # config rather than silently reusing `style`.
     payload: dict = {
         "prompt": prompt,
-        "prompt_style": gen.style if init is not None else gen.seedless_style,
+        "prompt_style": style or (gen.style if init is not None else gen.seedless_style),
         "width": w,
         "height": h,
         "num_images": gen.candidates,
         "input_palette": _b64(palette_png(pal)),
         "bypass_prompt_expansion": True,
         "upscale_output_factor": 1,
+        # ALWAYS. The palette is applied after generation, so a shaded candidate
+        # has two possible authors and they need different fixes: if the
+        # un-quantised image is already shaded the model shaded, and no amount of
+        # palette work will help; if only the quantised one is, the palette is
+        # doing it. One extra file per candidate ends that guess permanently, so
+        # it is not worth a flag.
+        "return_pre_palette": True,
     }
+    if refs:
+        payload["reference_images"] = [_b64(r) for r in refs[:MAX_REFS]]
+    if cost_only:
+        payload["check_cost"] = True
     if seed is not None:
         payload["seed"] = int(seed)
     if init is not None:
@@ -328,3 +377,17 @@ def decode_images(response: dict) -> list[bytes]:
         raise GenerationError(
             f"no images in response (keys: {', '.join(sorted(response)) or 'none'})")
     return [base64.b64decode(b) for b in images]
+
+
+def decode_pre_palette(response: dict) -> list[bytes]:
+    """The un-quantised images, if the service returned them.
+
+    Diagnostic only, and deliberately FORGIVING where `decode_images` is strict:
+    a missing key here costs a debugging aid, not the run, and the exact field
+    name is not worth failing a paid generation over. Compare these against the
+    quantised images to see who flattened -- or failed to flatten -- the art."""
+    for key in ("base64_images_pre_palette", "pre_palette_images",
+                "base64_pre_palette"):
+        if response.get(key):
+            return [base64.b64decode(b) for b in response[key]]
+    return []
