@@ -62,17 +62,6 @@ def test_output_is_never_upscaled(ctx):
     assert payload(ctx)["upscale_output_factor"] == 1
 
 
-def test_palette_payload_is_the_fourteen_drawable_colours(ctx):
-    """Index 0 is transparent and `rgb_lut` substitutes paper for it, so it
-    must be dropped — including it would weight paper twice and claim a colour
-    the deck does not have."""
-    pal, _, _ = ctx
-    png = base64.b64decode(payload(ctx)["input_palette"])
-    strip = np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).reshape(-1, 3)
-    assert len(strip) == 14
-    assert np.array_equal(strip, pal.rgb_lut()[1:])
-
-
 def test_init_image_carries_strength_and_omitting_it_does_not(ctx):
     """`strength` is meaningless without an init, and sending it anyway
     invites a service-side default to apply to a text-only run."""
@@ -232,3 +221,26 @@ def test_seedless_style_returns_one_object_not_a_sheet(ctx):
     assert gen.seedless_style in ("rd_fast__game_asset", "rd_plus__ui_element")
     assert "sheet" not in gen.seedless_style
     assert "turnaround" not in gen.seedless_style
+
+
+def test_generation_palette_offers_no_room_to_shade(ctx):
+    """Emblems came back SHADED because the palette let them: a dark/mid/light
+    ramp per bank is the material for a gradient, and the prompt asking for
+    flatness was competing with it. Restricting the rungs makes shading within a
+    bank impossible rather than merely discouraged.
+
+    Index 0 is transparent and `rgb_lut` substitutes paper for it, so it is
+    dropped whatever the rungs are — sending it would list paper twice and
+    weight the model toward it."""
+    pal, _, _ = ctx
+    png = base64.b64decode(payload(ctx)["input_palette"])
+    strip = np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).reshape(-1, 3)
+    lut = pal.rgb_lut()
+    assert len(strip) == 2 + 4 * len(retro.GENERATION_RUNGS) < 14
+    assert sum(np.array_equal(s, lut[2]) for s in strip) == 1, "paper listed once"
+    # line and paper lead, universal and unshaded
+    assert np.array_equal(strip[0], lut[1]) and np.array_equal(strip[1], lut[2])
+    # every bank still represented, so the art can use all four hue families
+    for i in range(4):
+        band = lut[3 + 3 * i:6 + 3 * i]
+        assert any(any(np.array_equal(s, c) for c in band) for s in strip[2:])

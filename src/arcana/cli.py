@@ -361,10 +361,19 @@ def cmd_import_mural(name: str, png: Path, face: str,
         print("  ! banks are scattered rather than regions, so this will not "
               "survive a palette swap — recolouring confetti, not shapes. Art "
               "built from the palette runs under 1")
-    missing = [lab for lab, n in zip(labels[1:], counts[1:]) if not n]
-    if missing:
-        print(f"  ! unused: {', '.join(missing)} — a bank the art never touches "
-              f"is a hue family missing from this card")
+    # The charter is about HUE FAMILIES, not slots: art must touch line, paper and
+    # all four banks. An unused RUNG is not a fault — on deliberately flat art it
+    # is the point, since the generator is handed two tones per bank precisely so
+    # it cannot shade. Warning per slot would fire on every card we now want.
+    from arcana.palette import BANKS as _BANKS
+    bare = [b for i, b in enumerate(_BANKS)
+            if not counts[3 + 3 * i:6 + 3 * i].any()]
+    if bare:
+        print(f"  ! unused BANK: {', '.join(bare)} — a hue family missing from "
+              f"this card entirely")
+    idle = [lab for lab, n in zip(labels[1:], counts[1:]) if not n]
+    if idle:
+        print(f"    (rungs unused: {', '.join(idle)} — expected on flat art)")
     ink = mural.margin_ink(g, geo)
     if ink > 0.12:
         print(f"  ! {ink:.0%} of the covered margin is line work — the generator "

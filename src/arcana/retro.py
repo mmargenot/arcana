@@ -59,7 +59,7 @@ from PIL import Image
 
 from arcana.elements import AssetError
 from arcana.geometry import Geometry
-from arcana.palette import Palette
+from arcana.palette import BANKS, DARK, LIGHT, LINE, MID, PAPER, Palette
 
 ENDPOINT = "https://api.retrodiffusion.ai/v1/inferences"
 KEY_ENV = "RD_API_KEY"
@@ -131,15 +131,38 @@ class Generation:
         return f"{subject}, {self.style_suffix}" if self.style_suffix else subject
 
 
-def palette_png(pal: Palette) -> bytes:
-    """The deck's 14 drawable colours as a PNG, for `input_palette`.
+# Which rung of each bank the generator may use.
+#
+# Offering all three is what produced SHADED emblems: a dark/mid/light ramp per
+# hue family is exactly the material for a gradient, and the model duly built 3D
+# form out of it -- a plinth with a lit top, a modelled side, a shadowed base.
+# Asking for flatness in the prompt did not stop it, because the prompt was
+# competing with the palette. Hand it two violets and a shaded violet is not
+# something it can render.
+#
+# Two rungs is the target look: a lit face and a body, form carried by
+# silhouette rather than modelling. Drop to (MID,) for one flat tone per bank if
+# anything still reads dimensional. Deliberately a constant rather than config:
+# there is one deck and one aesthetic, and this is a one-line change either way.
+GENERATION_RUNGS = (MID, LIGHT)
 
-    Index 0 is transparent and `rgb_lut` substitutes paper for it, so it MUST
-    be dropped -- including it would weight paper twice and tell the model the
-    deck has a colour it does not."""
-    lut = pal.rgb_lut()[1:]
+
+def palette_png(pal: Palette, rungs: tuple[int, ...] = GENERATION_RUNGS) -> bytes:
+    """The colours the generator may use, as a PNG for `input_palette`.
+
+    Always line and paper -- outlines and whites are universal, and every emblem
+    needs them -- plus the named rungs of each bank. Index 0 is transparent and
+    `rgb_lut` substitutes paper for it, so it MUST be dropped: including it
+    would weight paper twice and claim a colour the deck does not have.
+
+    This only narrows what comes BACK. Import still quantises against all 14, so
+    art that used ten of them simply stays flat."""
+    lut = pal.rgb_lut()
+    keep = [LINE, PAPER]
+    for i in range(len(BANKS)):
+        keep += [3 + 3 * i + (r - DARK) for r in rungs]
     buf = io.BytesIO()
-    Image.fromarray(lut.reshape(1, -1, 3).astype(np.uint8)).save(buf, format="PNG")
+    Image.fromarray(lut[keep].reshape(1, -1, 3).astype(np.uint8)).save(buf, format="PNG")
     return buf.getvalue()
 
 

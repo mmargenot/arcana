@@ -79,8 +79,9 @@ knockout_ground: false
 # the look instead of the art fighting them.
 style_suffix: >-
   a single isolated emblem on a fully transparent background, no scenery and no
-  horizon, thick dark outline, flat blocks of solid colour, generous empty
-  margins, symmetrical, high contrast
+  horizon, thick dark outline, one flat colour per shape, no gradients, no
+  dithering, no highlights, no drop shadows, generous empty margins, high
+  contrast
 
 # ONE EMBLEM PER CARD, carrying that card's symbols — the attribute rather than
 # the scene. Each element is named in the colour word of the BANK it should land
