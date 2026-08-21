@@ -1,17 +1,25 @@
 """
-Generation: an RWS scan in, palette-constrained pixel art out.
+Generation: a prompt and nine exemplars in, palette-constrained pixel art out.
 
 This is the seam the whole face-card path is built around. `arcana` composes
-frames, fields and labels algorithmically; the one thing it cannot compute is a
-scene. So a generative model draws the art window, seeded by the public-domain
-RWS card so composition carries across, and the result comes back through
-`import-mural` like any hand-authored art.
+frames, fields and labels algorithmically; the one thing it cannot compute is an
+emblem. So a generative model draws the art window and the result comes back
+through `import-mural` like any hand-authored art.
+
+SHOWN, NOT TOLD -- the single most important fact about this API. `input_palette`
+is applied AFTER generation; the service offers `return_pre_palette` to hand back
+the un-quantised image, which only makes sense if quantising is a post-process.
+So the palette re-maps colour and can never make the model draw flat. What can is
+`reference_images`, which only RD Pro accepts, and which is the tier documented
+for "matching an existing look". Three rounds of prompt-tuning lost to this.
 
 WHAT THE MODEL IS FOR. Not pixelation -- a downscale can pixelate. The model
-supplies SEMANTIC COLOUR: it knows the sky is a sky and should take the field
-bank's teal, where a nearest-colour mapping only knows the sky is warm and puts
-it in the flesh ramp. Measured on the Fool, direct quantisation of the scan put
-19,509 px in `figure` and 3 px in `border`. That is the problem being solved.
+supplies an EMBLEM: a lantern, a wheel, a goat's head, drawn in the deck's own
+idiom. It once supplied semantic colour too, when the plan was to re-render RWS
+scans (direct quantisation of the Fool put 19,509 px in `figure` and 3 px in
+`border`), but seeding a scan hands the model a figure in a landscape and asks it
+to hold that composition -- the opposite of an emblem. Seeding is now opt-in via
+`--init`, and the scan helpers below serve only that path.
 
 THREE NON-NEGOTIABLES, each a bug that has already happened or is one call
 away:
@@ -71,7 +79,7 @@ DEFAULTS = {
     "candidates": 4,
     "remove_bg": False,
     "knockout_ground": False,
-    "style_suffix": "",
+    "style_prefix": "",
     "seedless_style": "rd_plus__default",
 }
 
@@ -93,7 +101,7 @@ class Generation:
     candidates: int
     remove_bg: bool
     knockout_ground: bool
-    style_suffix: str
+    style_prefix: str
     seedless_style: str
     prompts: dict[str, str]
 
@@ -110,25 +118,39 @@ class Generation:
                    candidates=int(d["candidates"]),
                    remove_bg=bool(d["remove_bg"]),
                    knockout_ground=bool(d["knockout_ground"]),
-                   style_suffix=str(d["style_suffix"]).strip(),
+                   style_prefix=str(d["style_prefix"]).strip(),
                    seedless_style=str(d["seedless_style"]),
                    prompts=dict(d.get("prompts") or {}))
 
     def prompt_for(self, key: str) -> str:
-        """A face's subject, plus the deck's shared style suffix.
+        """The deck's style notes, then a full stop, then this face's symbols.
 
-        The split is the point. The SUBJECT is per card and stays terse -- with
-        a pixelate style the seed is the subject, so a long description only
-        invites invention. The STYLE is per deck and written once, which is what
-        keeps 22 cards looking like one deck instead of 22 prompts drifting
-        apart."""
+        THE SEPARATOR IS LOAD-BEARING, and a comma here was a real bug. Joined
+        with one, the style read as more subject: `major_17` went out as "a great
+        white eight-pointed star..., a magenta ibis on a violet tree, A SINGLE
+        ISOLATED EMBLEM filling the whole frame" -- and that last phrase sits in
+        exactly the same grammatical slot as "a magenta ibis", so the emblem
+        becomes a fourth thing to draw beside the star. A full stop closes the
+        clause so the symbol list cannot absorb it.
+
+        STYLE LEADS for two reasons. Earlier tokens carry more weight in a
+        CLIP-conditioned model, and style was previously in the weakest position
+        -- last, in a prompt long enough (~90 tokens against CLIP's 77) that it
+        may have been truncated outright. Leading also makes the grammar work
+        FOR us: "a single flat emblem icon. a great white star..." reads as an
+        icon OF a star, which is the thing we are asking for.
+
+        The split is the point. SYMBOLS are per card; STYLE is per deck, written
+        once, which keeps 22 cards looking like one deck. RD documents no prompt
+        syntax at all -- no weighting, no BREAK, no separators -- so ordering and
+        brevity are the only structure available."""
         try:
             subject = self.prompts[key]
         except KeyError:
             raise AssetError(
                 f"no prompt for face {key!r}. Add it under `prompts:` in the "
                 f"deck's generation.yaml, or pass --prompt for a one-off.")
-        return f"{subject}, {self.style_suffix}" if self.style_suffix else subject
+        return f"{self.style_prefix}. {subject}" if self.style_prefix else subject
 
 
 # Which rung of each bank the generator may use.

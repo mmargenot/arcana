@@ -151,10 +151,11 @@ def test_every_major_has_a_prompt(ctx):
 
 
 def test_prompts_are_emblems_and_banks_not_narrative(ctx):
-    """A prompt lists the card's emblems and the bank each should land in. It is
-    not a scene description: with a pixelate style the seed is the subject, and
-    prose invites the invention this path exists to avoid. Style adjectives are
-    not counted here at all -- they live in the deck-wide suffix."""
+    """A prompt names the card's emblems and the bank each should land in, with
+    ONE marked dominant -- the reference sheet is a big mass plus small accents,
+    not a list of co-equal objects. It is not a scene description; prose invites
+    the invention this path exists to avoid. Style adjectives are not counted
+    here at all: they live once in `style_prefix`."""
     _, _, gen = ctx
     for key, text in gen.prompts.items():
         assert len(text.split()) <= 45, f"{key}: {len(text.split())} words"
@@ -211,19 +212,58 @@ def test_style_asks_the_emblem_to_fill_the_frame(ctx):
     size already cuts the margin the card needs, so asking again spends the art
     twice."""
     _, _, gen = ctx
-    assert "margins" not in gen.style_suffix, gen.style_suffix
-    assert "filling the whole frame" in gen.style_suffix
+    assert "margins" not in gen.style_prefix, gen.style_prefix
+    assert "filling the frame" in gen.style_prefix
 
 
-def test_style_suffix_is_shared_not_per_card(ctx):
-    """22 prompts each carrying their own style adjectives is how 22 cards stop
-    matching. The look is written once and appended to every subject."""
+def test_the_style_notes_are_positive_only(ctx):
+    """Negations do not work and we keep re-introducing them. There is no
+    negation mechanism in a positive prompt -- naming "horizon" or "drop shadows"
+    raises their odds rather than lowering them -- and RD's `negative` field is a
+    documented non-functional placeholder, so there is nowhere correct to put
+    them. The old suffix carried six and produced shaded emblems anyway."""
     _, _, gen = ctx
-    assert gen.style_suffix, "the deck states a look"
+    banned = [c.strip() for c in gen.style_prefix.split(",")
+              if c.strip().startswith(("no ", "without ", "avoid "))]
+    assert not banned, f"negations in style_prefix: {banned}"
+
+
+def test_the_style_notes_do_not_restate_a_parameter(ctx):
+    """`remove_bg` gives the transparent ground as a first-class flag, so asking
+    for one in words buys nothing and spends tokens in the position that matters
+    most. Same for upscaling and the size, which come from Geometry."""
+    _, _, gen = ctx
+    low = gen.style_prefix.lower()
+    for word in ("transparent", "background", "upscale"):
+        assert word not in low, f"{word!r} is a parameter, not a style note"
+
+
+def test_the_prompt_stays_inside_the_token_budget(ctx):
+    """CLIP conditioning truncates around 77 tokens, and the old 70-word prompt
+    ran near 90 -- which put the style notes, then at the TAIL, exactly where
+    truncation eats them. We cannot verify RD's tokenizer, so this keeps a margin
+    rather than trusting one: ~1.3 tokens per word is the usual English rate."""
+    _, _, gen = ctx
     for key in gen.prompts:
-        assert gen.prompt_for(key).endswith(gen.style_suffix), key
-        assert gen.prompts[key] in gen.prompt_for(key), key
-    assert "pixel" not in gen.style_suffix.lower()
+        words = len(gen.prompt_for(key).split())
+        assert words * 1.3 < 77, f"{key}: {words} words, ~{words * 1.3:.0f} tokens"
+
+
+def test_style_leads_and_is_shared_not_per_card(ctx):
+    """22 prompts each carrying their own style adjectives is how 22 cards stop
+    matching. The look is written once and PREPENDED to every subject.
+
+    Leading, not trailing, and separated by a full stop. Joined with a comma at
+    the tail, "a single isolated emblem" landed in the same grammatical slot as
+    "a magenta ibis" and read as one more thing to draw."""
+    _, _, gen = ctx
+    assert gen.style_prefix, "the deck states a look"
+    for key in gen.prompts:
+        full = gen.prompt_for(key)
+        assert full.startswith(gen.style_prefix), key
+        assert gen.prompts[key] in full, key
+        assert f"{gen.style_prefix}. " in full, f"{key}: style must end in a stop"
+    assert "pixel" not in gen.style_prefix.lower()
 
 
 # --- transparent ground --------------------------------------------------

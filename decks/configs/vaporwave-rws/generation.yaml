@@ -67,26 +67,33 @@ knockout_ground: false
 # us: an RWS scan hands the model a figure in a landscape and asks it to hold
 # that composition, which is the opposite of an emblem. Seedless is now default.
 #
-# WORDS ARE THE WEAKEST OF THE THREE LEVERS. This suffix asked for "no gradients,
-# no dithering, no highlights" and got shaded emblems anyway. Style and reference
-# images do the work; this only has to avoid contradicting them.
+# STYLE LEADS, AND A FULL STOP SEPARATES IT FROM THE SYMBOLS. This used to be a
+# SUFFIX joined with a comma, and that was a bug rather than a matter of taste:
+# major_17 went out as "...a magenta ibis on a violet tree, a single isolated
+# emblem filling the whole frame", where the emblem sits in the same grammatical
+# slot as the ibis and reads as a fourth thing to draw. It also contradicted
+# itself, demanding one isolated emblem while naming four objects.
 #
-# TRANSPARENT GROUND. With no scenery there is nothing to lose to background
-# removal, so `remove_bg` is finally the right tool rather than a risk — and a
-# transparent ground is what lets the card's own field, frame and palette carry
-# the look instead of the art fighting them.
+# Leading is the stronger position: earlier tokens carry more weight in a
+# CLIP-conditioned model, and the old prompt ran ~90 tokens against CLIP's 77, so
+# the style notes sat exactly where truncation would eat them. Now the grammar
+# works for us — "a single flat emblem icon. a great white star..." reads as an
+# icon OF a star.
 #
-# FILLING THE FRAME IS PART OF THE STYLE. This asked for "generous empty
-# margins" and got exactly that: major_00 came back with 2189 opaque pixels of a
-# 112x208 generation — 9.4% coverage, an emblem lost in its own window. The
-# margin the card needs is already cut by generating at the safe size, so asking
-# for more here spends the art on nothing twice. The emblem should run to the
-# edges of what it is given.
-style_suffix: >-
-  a single isolated emblem filling the whole frame edge to edge, large and
-  centred with only a thin margin, on a fully transparent background, no scenery
-  and no horizon, thick dark outline, one flat colour per shape, no gradients,
-  no dithering, no highlights, no drop shadows, high contrast
+# POSITIVE ONLY. The old text carried six negations — "no gradients, no
+# dithering, no highlights, no drop shadows, no scenery and no horizon" — and got
+# shaded emblems anyway. There is no negation mechanism in a positive prompt;
+# naming "horizon" and "drop shadows" raises their odds. RD's `negative` field is
+# a documented non-functional placeholder, so there is nowhere correct to put
+# them at all. They are gone.
+#
+# Nothing here restates a PARAMETER either. `remove_bg` gives the transparent
+# ground, so asking for one in words only spends tokens. RD's own guidance is
+# "describe the subject — the style handles rendering", and with RD Pro plus nine
+# reference images doing that job, this only has to avoid contradicting them.
+style_prefix: >-
+  a single flat emblem icon filling the frame, thick dark outline, one solid
+  colour per shape, high contrast
 
 # ONE EMBLEM PER CARD, carrying that card's symbols — the attribute rather than
 # the scene. Each element is named in the colour word of the BANK it should land
@@ -115,69 +122,76 @@ style_suffix: >-
 # written that way.
 prompts:
   major_00: >-
-    a white five-petalled rose in the center, spaced between two open palms on
-    the sides
+    a great white five-petalled rose filling the frame, two warm tan open
+    palms cupped at its sides, a small magenta feather above
   major_01: >-
-    a violet altar table bearing a white cup, a warm tan coin. a white sword and
-    a warm tan wand lie on the table, and a magenta infinity sign sits in the sky
-    above it
+    a great magenta infinity sign dominating the upper frame, a violet altar
+    table below bearing a white cup, a warm tan coin and a white sword
   major_02: >-
-    a warm tan scroll lettered TORA between two violet pillars, a white crescent
-    moon lying below, magenta pomegranates on the veil
+    two tall violet pillars flanking the frame, a great magenta crescent moon
+    lying between them, a small warm tan scroll below, tiny magenta blossoms
   major_03: >-
-    a white crown of twelve stars above a warm tan sheaf of wheat, a magenta
-    venus sigil, a violet cushioned throne
+    a great white heart filling the frame, a bold magenta venus sigil at its
+    centre, two warm tan wheat stalks crossed behind, small white sparkles
+    above
   major_04: >-
-    a violet stone throne with warm tan ram heads at its arms, a magenta robe
-    draped across it, a warm tan ankh sceptre and a white orb crossed above
+    a great warm tan ram's head dominating the frame, a violet throne behind
+    it, a small magenta robe draped across, a white orb below
   major_05: >-
-    a white triple crown above two crossed white keys, a magenta mantle, a warm
-    tan staff with a triple cross, flanked by two violet pillars
+    a great white triple crown filling the upper frame, two warm tan keys
+    crossed below it, a magenta mantle behind, two small violet pillars at the
+    edges
   major_06: >-
-    two white rings beneath a warm tan sun, a violet mountain peak between them,
-    magenta flames rising in one tree, a white serpent coiled about the other
+    a great white winged serpent coiled through the frame, a warm tan sun
+    above, magenta flames at its base, a small violet mountain behind
   major_07: >-
-    a violet chariot car under a canopy of white stars, a warm tan winged disk on
-    its front, magenta crescent epaulettes, two sphinxes one black one white
+    a great warm tan winged disk filling the frame, a violet chariot car
+    below, magenta crescent epaulettes at the sides, small white stars above
   major_08: >-
-    a warm tan lion's head wreathed in a magenta flower garland, a white
-    infinity sign above it, a violet mountain behind
+    a great warm tan lion's head dominating the frame, a magenta flower
+    garland around it, a white infinity sign above, a small violet peak behind
   major_09: >-
-    a warm tan lantern holding a white six-pointed star, a magenta hooded cloak,
-    a long violet staff crossed behind it
+    a great warm tan lantern filling the frame, a white six-pointed star
+    burning inside it, a long violet staff behind, small magenta rays
   major_10: >-
-    a great violet wheel lettered ROTA, a white sphinx couchant above it, a
-    magenta serpent descending, a warm tan jackal rising
+    a great magenta wheel filling the frame, concentric rings and eight
+    spokes, a warm tan hub at its centre, four small white orbs set around its
+    rim
   major_11: >-
-    a white upright sword crossed with warm tan scales, a violet crown between
-    them, magenta veil behind
+    a great white sword upright through the frame, warm tan scales hanging
+    from its crossguard, a violet crown above, a small magenta pendant
   major_12: >-
-    a warm tan living T-cross of wood, a violet tunic, a white rope, a white halo
-    hanging beneath it, magenta foliage crowning the cross
+    a great warm tan T-cross of wood filling the frame, a white rope and halo
+    hanging beneath, a violet tunic, magenta foliage crowning it
   major_13: >-
-    a white skull in violet armour, a banner bearing a white five-petalled rose,
-    a warm tan bone scythe, a magenta crown fallen beneath
+    a great white skull filling the frame, a single magenta flower on a warm
+    tan stem below it, a violet collar beneath
   major_14: >-
-    two warm tan cups pouring one into the other, a teal stream between them,
-    magenta irises, a white triangle within a violet square
+    two great warm tan cups pouring one into the other, a teal stream arcing
+    between them, a white triangle in a violet square above, magenta irises
+    below
   major_15: >-
-    a violet half-cube pedestal, a magenta inverted pentagram above it, a warm
-    tan torch held downward, white chains hanging
+    a great warm tan goat's head filling the frame, a magenta inverted
+    pentagram behind it, a violet ring enclosing both, two small warm tan
+    torches below
   major_16: >-
-    a violet tower struck by white lightning, a magenta crown tumbling from its
-    top, warm tan flames, white yods falling
+    a great violet tower filling the frame, a white lightning bolt striking
+    its crown, a magenta crown tumbling away, small warm tan flames falling
   major_17: >-
-    a great white eight-pointed star with seven smaller, two warm tan vessels
-    pouring teal water, a magenta ibis on a violet tree
+    a great white eight-pointed star filling the frame, a magenta rosette at
+    its heart, a warm tan hub, small magenta sparkles scattered around it
   major_18: >-
-    a white crescent moon with a face, two violet towers, magenta yods falling,
-    a warm tan crayfish in teal water
+    a great white moon with a face filling the upper frame, warm tan rays
+    around it, magenta droplets falling below, two small violet towers at the
+    base
   major_19: >-
-    a great warm tan sun with a face and magenta rays, four magenta sunflowers
-    over a violet garden wall, a white banner
+    a great warm tan sun with a sleeping face filling the frame, alternating
+    warm tan and magenta rays, small white sparkles at the corners, a violet
+    edge
   major_20: >-
-    a warm tan trumpet with a white banner bearing a magenta cross, three white
-    figures rising from violet coffins, teal water below
+    a great warm tan trumpet across the frame, a white banner bearing a
+    magenta cross hanging from it, teal water below, a small violet coffin
   major_21: >-
-    a magenta laurel wreath bound with white ribbons, a violet scarf spiralling
-    within it, two warm tan wands crossed, four white creatures at its corners
+    a great magenta laurel wreath filling the frame, a violet scarf spiralling
+    within it, two warm tan wands crossed, four small white creatures at the
+    corners
